@@ -1,0 +1,29 @@
+# Windows installer (NSIS, per user, x64). Build it with `yarn dist`.
+appId: com.tihi321.chiptune-studio
+productName: Chiptune Studio
+copyright: Chiptune Studio
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  - '!out/**/*.map'
+# No asar archive: the keyring .node file cannot be loaded from inside an archive, and the MCP stdio shim
+# (out/mcp-stdio/index.js) must be runnable as a real file path by external MCP clients.
+asar: false
+extraResources:
+  - from: seed
+    to: seed
+  - from: docs
+    to: docs
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: Chiptune-Studio-Setup-${version}.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false

@@ -1,0 +1,53 @@
+{
+  "name": "chiptune-studio",
+  "productName": "Chiptune Studio",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Chiptune Studio: a chiptune/MIDI composer with a built-in LLM agent and an MCP server",
+  "main": "./out/main/index.js",
+  "bin": {
+    "chiptune-studio-mcp": "./out/mcp-stdio/index.js"
+  },
+  "scripts": {
+    "postinstall": "install-electron",
+    "build:mcp": "vite build --config vite.mcp.config.ts --logLevel warn",
+    "dev": "electron-vite dev",
+    "build": "yarn build:mcp && electron-vite build",
+    "test": "vitest run",
+    "test:electron": "yarn build && playwright test --config playwright.electron.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "lint": "eslint .",
+    "gen:guide": "node scripts/gen-guide.mjs",
+    "dist": "yarn build && electron-builder --config electron-builder.yml --win nsis --x64"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@napi-rs/keyring": "^2.1.0",
+    "chokidar": "^4.0.3",
+    "fflate": "^0.8.3",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.1",
+    "vite": "^7.0.0",
+    "vitest": "^5.0.3",
+    "zustand": "^5.0.15"
+  },
+  "author": "Tihomir Selak"
+}
