@@ -2,10 +2,14 @@
 // of the last agent turn. The conversation itself lives in main; this is only the view of it.
 
 import { create } from 'zustand'
-import type { ChatSummary, LlmOverview } from '../../shared/agent'
+import type { ChatSummary, LlmAddModel, LlmCatalog, LlmOverview } from '../../shared/agent'
 import { agentApi, llmApi } from '../lib/agentApi'
 import { session } from './session'
 import { type ChatState, type TurnUndoInfo, addError, applyEvent, initialChat, replayChat, resetChat } from './chatReducer'
+
+export interface CatalogState extends LlmCatalog {
+  loading: boolean
+}
 
 export interface ChatStore extends ChatState {
   overview: LlmOverview | null
@@ -17,6 +21,8 @@ export interface ChatStore extends ChatState {
   chatId: string | null
   /** The saved chats, newest first; null until the history is opened. */
   chats: ChatSummary[] | null
+  /** What Detect models listed, per provider. */
+  catalogs: Record<string, CatalogState>
 
   setDraft: (text: string) => void
   loadOverview: () => Promise<void>
@@ -24,6 +30,12 @@ export interface ChatStore extends ChatState {
   refreshModels: () => Promise<void>
   setOverview: (o: LlmOverview) => void
   selectModel: (ref: string | null) => Promise<void>
+  /** Lists every model a provider has (Settings > Models). */
+  detect: (provider: string) => Promise<void>
+  /** Ticks or unticks models for the chat dropdown; refusals land in overviewError. */
+  showModels: (refs: string[], shown: boolean) => Promise<void>
+  /** Adds a model by id; rejects with the reason when the command is invalid. */
+  addModel: (cmd: LlmAddModel) => Promise<void>
   send: (text: string) => Promise<void>
   stop: () => Promise<void>
   newChat: () => Promise<void>
@@ -44,6 +56,7 @@ export const useChat = create<ChatStore>((set, get) => ({
   draft: '',
   chatId: null,
   chats: null,
+  catalogs: {},
 
   setDraft: (draft) => set({ draft }),
   setOverview: (overview) => set({ overview, overviewError: overview.error ?? null }),
@@ -72,6 +85,29 @@ export const useChat = create<ChatStore>((set, get) => ({
     } catch (e) {
       set((s) => addError(s, e instanceof Error ? e.message : String(e)))
     }
+  },
+
+  async detect(provider) {
+    const put = (c: CatalogState): void => set((s) => ({ catalogs: { ...s.catalogs, [provider]: c } }))
+    put({ models: get().catalogs[provider]?.models ?? [], loading: true })
+    try {
+      put({ ...(await llmApi.catalog(provider)), loading: false })
+    } catch (e) {
+      put({ models: [], error: e instanceof Error ? e.message : String(e), loading: false })
+    }
+  },
+
+  async showModels(refs, shown) {
+    if (!refs.length) return
+    try {
+      get().setOverview(await llmApi.showModels(refs, shown))
+    } catch (e) {
+      set({ overviewError: e instanceof Error ? e.message : String(e) })
+    }
+  },
+
+  async addModel(cmd) {
+    get().setOverview(await llmApi.addModel(cmd))
   },
 
   async send(text) {

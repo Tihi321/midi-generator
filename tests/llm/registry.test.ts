@@ -36,7 +36,7 @@ async function registryFor(providers: string, roles: string, aliases?: string, o
 describe('seed config', () => {
   it('is seeded into a missing config folder, never overwriting existing files', async () => {
     const cfg = path.join(dir, 'config')
-    expect(await ensureConfigDir(cfg, seedDir)).toEqual(['providers.md', 'roles.md'])
+    expect(await ensureConfigDir(cfg, seedDir)).toEqual(['providers.md', 'roles.md', 'models.md'])
     await writeFile(path.join(cfg, 'roles.md'), 'mine')
     expect(await ensureConfigDir(cfg, seedDir)).toEqual([])
     expect(await readFile(path.join(cfg, 'roles.md'), 'utf8')).toBe('mine')
@@ -50,6 +50,10 @@ describe('seed config', () => {
     expect(registry.providers.get('strata')).toMatchObject({ available: true, local: true, jsonSchema: false })
     expect(registry.providers.get('deepseek')).toMatchObject({ available: false, unavailableReason: expect.stringMatching(/no key/) })
     expect(registry.providers.get('ollama')?.available).toBe(false)
+    expect(registry.providers.get('deepseek')).toMatchObject({ jsonSchema: false })
+    expect(registry.providers.get('openrouter')).toMatchObject({ discover: 'free', discoverSkip: ['content-safety'], jsonSchema: false, rpm: 20 })
+    // the seed's models.md has no choices: nothing is shown until ticked
+    expect(registry.listModels().every((m) => !m.shown && m.source === 'config')).toBe(true)
 
     const qwen = registry.getModel('lmstudio/nail-qwen3.6-35b-a3b-mtp')!
     expect(qwen).toMatchObject({ tools: true, vision: false, loadContext: undefined, context: 131072 })
@@ -185,6 +189,80 @@ describe('discovery', () => {
     await registry.discover()
     expect(lmRefs()).toEqual(['lm/gone'])
     expect(registry.getModel('lm/gone')).toMatchObject({ discovered: false, tools: true })
+  })
+})
+
+describe('model choices (models.md) and discover: free', () => {
+  const openRouterList = {
+    data: [
+      { id: 'a/free-one:free', context_length: 131072, pricing: { prompt: '0', completion: '0' }, architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] }, supported_parameters: ['tools', 'temperature'] },
+      { id: 'b/free-two:free', context_length: 8192, pricing: { prompt: '0', completion: '0' }, architecture: { output_modalities: ['text'] }, supported_parameters: ['temperature'] },
+      { id: 'c/paid', context_length: 1000, pricing: { prompt: '0.000001', completion: '0.000002' }, architecture: { output_modalities: ['text'] } },
+      { id: 'd/music:free', pricing: { prompt: '0', completion: '0' }, architecture: { output_modalities: ['audio'] } },
+      { id: 'nvidia/content-safety:free', pricing: { prompt: '0', completion: '0' }, architecture: { output_modalities: ['text'] } },
+      { id: 'openrouter/auto', pricing: { prompt: '-1', completion: '-1' }, architecture: { output_modalities: ['text'] } }
+    ]
+  }
+  const orFetch = ((url: string) => (String(url).endsWith('/models') ? new Response(JSON.stringify(openRouterList)) : new Response('', { status: 404 }))) as unknown as typeof fetch
+  const orProvider =
+    '  - id: or\n    kind: openai-compat\n    base_url: https://openrouter.ai/api/v1\n    api_key_env: K\n    discover: free\n    discover_skip: [content-safety]\n    models:\n      - id: x/paid\n        price_in: 1\n        price_out: 2'
+  const writeModels = (data: string) => writeFile(path.join(dir, 'models.md'), `---\nkind: models\n${data}\n---\n`)
+
+  it('keeps only the free text models, never drops a configured paid one, and shows them only when ticked', async () => {
+    const registry = await registryFor(orProvider, '  r:\n    models: [or/x/paid]', undefined, { fetchImpl: orFetch })
+    // an old `hidden` key is tolerated and ignored
+    await writeModels('shown: [or/b/free-two:free]\nhidden: [or/x/paid]')
+    await registry.load()
+    expect(await registry.discover()).toEqual([{ provider: 'or', found: 2 }])
+    expect(registry.listModels().map((m) => m.ref).sort()).toEqual(['or/a/free-one:free', 'or/b/free-two:free', 'or/x/paid'])
+    expect(registry.getModel('or/a/free-one:free')).toMatchObject({ source: 'discovered', discovered: true, shown: false, context: 131072, tools: true, vision: true, family: 'a', priceIn: 0 })
+    expect(registry.getModel('or/b/free-two:free')).toMatchObject({ shown: true, tools: false, vision: false })
+    expect(registry.getModel('or/x/paid')).toMatchObject({ source: 'config', shown: false, priceIn: 1 })
+    // a reload keeps what was found and applies models.md again
+    await writeModels('shown: [or/a/free-one:free]')
+    await registry.load()
+    expect(registry.getModel('or/a/free-one:free')).toMatchObject({ shown: true })
+    expect(registry.getModel('or/b/free-two:free')).toMatchObject({ shown: false })
+    expect(registry.getModel('or/x/paid')).toMatchObject({ shown: false })
+    await writeModels('shown: [or/x/paid]')
+    await registry.load()
+    expect(registry.getModel('or/x/paid')).toMatchObject({ shown: true })
+  })
+
+  it('picked models are loaded and shown; providers.md wins over a picked duplicate; a picked ref of an unknown provider is ignored', async () => {
+    const registry = await registryFor(orProvider, '  r:\n    models: [or/x/paid]', undefined, { fetchImpl: orFetch })
+    await writeModels(
+      'picked:\n  - { provider: or, id: y/picked, family: y, context: 5000, price_in: 3, price_out: 4, tools: false, vision: true }\n  - { provider: or, id: x/paid, price_in: 99, price_out: 99 }\n  - { provider: nope, id: z }'
+    )
+    await registry.load()
+    expect(registry.getModel('or/y/picked')).toMatchObject({ source: 'picked', shown: true, context: 5000, priceIn: 3, priceOut: 4, priceCachedIn: 3, tools: false, vision: true })
+    expect(registry.getModel('or/x/paid')).toMatchObject({ source: 'config', priceIn: 1 })
+    expect(registry.getModel('nope/z')).toBeUndefined()
+  })
+
+  it('catalog lists the text models with prices (discover_skip applied) and remembers them; OpenRouter gets its attribution headers', async () => {
+    const seen: Record<string, string>[] = []
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      seen.push(init?.headers as Record<string, string>)
+      return orFetch(url as never, init as never)
+    }) as unknown as typeof fetch
+    const registry = await registryFor(orProvider, '  r:\n    models: [or/x/paid]', undefined, { fetchImpl })
+    const listed = await registry.catalog('or')
+    expect(listed.map((m) => m.id)).toEqual(['a/free-one:free', 'b/free-two:free', 'c/paid', 'openrouter/auto'])
+    expect(listed.find((m) => m.id === 'c/paid')?.price).toMatchObject({ in: 1, out: 2 })
+    expect(listed.find((m) => m.id === 'openrouter/auto')?.price).toBeUndefined()
+    expect(registry.listedModels('or')).toHaveLength(4)
+    expect(seen[0]).toMatchObject({ 'HTTP-Referer': expect.stringContaining('github.com'), 'X-Title': 'Chiptune Studio' })
+    await expect(registry.catalog('missing')).rejects.toThrow(/no provider/)
+  })
+
+  it('discover_skip also applies to discover: true, and a model with only a maker prefix gets it as its family', async () => {
+    const fetchImpl = (async (url: string) =>
+      String(url).endsWith('/v1/models') ? new Response(JSON.stringify({ data: [{ id: 'keep-me' }, { id: 'qwen-DFlash' }, { id: 'acme/thing' }] })) : new Response('', { status: 404 })) as unknown as typeof fetch
+    const registry = await registryFor('  - id: lm\n    kind: openai-compat\n    local: true\n    base_url: http://lm.test/v1\n    discover: true\n    discover_skip: [dflash]\n    models: []', '  r:\n    models: []', undefined, { fetchImpl })
+    expect(await registry.discover()).toEqual([{ provider: 'lm', found: 2 }])
+    expect(registry.getModel('lm/acme/thing')).toMatchObject({ family: 'acme', shown: false, source: 'discovered' })
+    expect(registry.getModel('lm/qwen-DFlash')).toBeUndefined()
   })
 })
 

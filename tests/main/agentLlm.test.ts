@@ -47,6 +47,36 @@ describe('LlmService', () => {
     expect(JSON.stringify(o)).not.toMatch(/secret/)
   })
 
+  it('the overview says what the dropdown shows; showModels and addModel persist in models.md and come back as a fresh overview', async () => {
+    const { ops } = fakeKeys({ DEEPSEEK_API_KEY: 'k' })
+    const svc = make(ops)
+    const o = await svc.overview()
+    expect(o.providers.find((p) => p.id === 'openrouter')).toMatchObject({ canList: true, discover: 'free' })
+    expect(o.providers.find((p) => p.id === 'anthropic')).toMatchObject({ canList: false, discover: false })
+    expect(o.models.find((m) => m.ref === 'deepseek/deepseek-flash')).toMatchObject({ shown: false, source: 'config', context: 1000000, free: false, priceIn: 0.3 })
+    expect(o.models.find((m) => m.ref === 'lmstudio/google/gemma-4-e4b')).toMatchObject({ shown: false, free: true })
+    // nothing is in the dropdown until ticked
+    expect(o.models.some((m) => m.shown)).toBe(false)
+
+    const ticked = await svc.showModels(['deepseek/deepseek-flash'], true)
+    expect(ticked.error).toBeUndefined()
+    expect(ticked.models.find((m) => m.ref === 'deepseek/deepseek-flash')).toMatchObject({ shown: true })
+    expect(await readFile(path.join(dir, 'config', 'models.md'), 'utf8')).toContain('deepseek/deepseek-flash')
+
+    const refused = await svc.showModels(['deepseek/unlisted'], true)
+    expect(refused.error).toMatch(/not listed/)
+
+    await expect(svc.addModel({ provider: 'deepseek', id: 'deepseek-x', priceIn: 1 })).rejects.toThrow(/needs its price/)
+    const added = await svc.addModel({ provider: 'deepseek', id: 'deepseek-x', priceIn: 1, priceOut: 2, context: 64000 })
+    expect(added.models.find((m) => m.ref === 'deepseek/deepseek-x')).toMatchObject({ shown: true, source: 'picked', priceOut: 2, context: 64000 })
+    // a restart reads the same choices
+    const again = await make(ops).overview()
+    expect(again.models.find((m) => m.ref === 'deepseek/deepseek-x')).toMatchObject({ shown: true })
+    expect(again.models.find((m) => m.ref === 'deepseek/deepseek-flash')).toMatchObject({ shown: true })
+    // a provider without a key answers the catalog with an error, not a throw
+    expect((await make(fakeKeys().ops).catalog('openrouter')).error).toMatch(/no key/)
+  })
+
   it('stores and deletes keys by the provider api_key_env and refreshes availability', async () => {
     const { ops, store } = fakeKeys()
     const svc = make(ops)

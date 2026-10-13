@@ -1282,3 +1282,72 @@ input.hex.cur {
   width: 100%;
   resize: vertical;
 }
+
+/* ---------------------------------------------------------------- settings: models tab */
+
+.chat-model-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.models-body {
+  display: flex;
+  gap: 8px;
+}
+.models-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 130px;
+  flex: none;
+}
+.models-providers button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  height: auto;
+  padding: 3px 6px;
+}
+.models-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.models-pane .row-buttons input[type='text'],
+.models-pane .row-buttons input:not([type]) {
+  flex: 1;
+}
+.models-pane .row-buttons input[type='number'] {
+  width: 80px;
+}
+.models-list {
+  height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px;
+}
+.model-row.disabled {
+  opacity: 0.5;
+}
+.model-row .model-id {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-row .hint {
+  white-space: nowrap;
+}
+.model-row .free {
+  color: #8fe0aa;
+}
