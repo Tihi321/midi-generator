@@ -2,7 +2,7 @@
 
 ## 2026-10-13: MDI-02, Models page, OpenRouter free models and DeepSeek update (port of pixel-art-generator PAR-04)
 
-The chat model dropdown now offers only the models you tick in Settings > Models. Free OpenRouter models are listed automatically, LM Studio models can be ticked, and DeepSeek works with thinking plus tools. The changes are uncommitted.
+The chat model dropdown now offers only the models you tick in Settings > Models. Free OpenRouter models are listed automatically, LM Studio models can be ticked, and DeepSeek works with thinking plus tools. Committed as 92579e5 (not pushed).
 
 **Repo:** midi-generator. **Branch:** `MDI-02_models_page`, cut from `origin/master` @ f1635f2.
 
@@ -85,4 +85,4 @@ The chat model dropdown now offers only the models you tick in Settings > Models
 - A model unticked in the dropdown can still be used through `roles.md` (Default) or as a fallback.
 
 ### Commit status
-Uncommitted on `MDI-02_models_page`.
+Committed as 92579e5 on `MDI-02_models_page` (not pushed).

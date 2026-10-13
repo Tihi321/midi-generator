@@ -50,4 +50,4 @@ Implementation runs through the global `implement` skill with this plan file.
 - [x] 3. ui.ts + smoke.spec hand-merged
 - [x] 4. Leftover pixel wording reviewed. The orchestrator reworded the vision badge title in `Badges.tsx` ("sees the piano-roll preview from render_preview"); the 'I should draw' test string is left as is.
 - [x] Verification: typecheck 0, lint 0, test 63 files / 798 tests pass, test:electron 24 passed
-- [x] changelog.md written. Not committed.
+- [x] changelog.md written. Committed as 92579e5 (not pushed).
