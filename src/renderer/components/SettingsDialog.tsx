@@ -3,8 +3,9 @@ import type { LlmOverview, LlmProviderInfo } from '../../shared/agent'
 import type { McpState } from '../../shared/mcp'
 import { llmApi, mcpApi } from '../lib/agentApi'
 import { useChat } from '../state/chat'
-import { useUi } from '../state/ui'
+import { type SettingsTab, useUi } from '../state/ui'
 import { Modal, NumberField } from './Controls'
+import { ModelsTab } from './ModelsTab'
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
@@ -255,19 +256,18 @@ function McpTab() {
   )
 }
 
-type Tab = 'providers' | 'mcp'
-
 export function SettingsDialog() {
   const openDialog = useUi((s) => s.openDialog)
   const dataDir = useChat((s) => s.overview?.dataDir)
-  const [tab, setTab] = useState<Tab>('providers')
+  const [tab, setTab] = useState<SettingsTab>(() => useUi.getState().settingsTab)
   return (
     <Modal title="Settings" onClose={() => openDialog(null)} testId="settings-dialog" wide>
       <div className="tabs">
         <button className={tab === 'providers' ? 'active' : ''} onClick={() => setTab('providers')} data-testid="settings-tab-providers">Providers</button>
+        <button className={tab === 'models' ? 'active' : ''} onClick={() => setTab('models')} data-testid="settings-tab-models">Models</button>
         <button className={tab === 'mcp' ? 'active' : ''} onClick={() => setTab('mcp')} data-testid="settings-tab-mcp">MCP</button>
       </div>
-      {tab === 'providers' ? <ProvidersTab /> : <McpTab />}
+      {tab === 'providers' ? <ProvidersTab /> : tab === 'models' ? <ModelsTab /> : <McpTab />}
       <div className="hint" data-testid="settings-data-dir">
         Data folder (read-only): <span className="mono">{dataDir ?? '~/ChiptuneStudio'}</span>
       </div>

@@ -1,26 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import type { LlmModelInfo } from '../../shared/agent'
 import { useSession } from '../hooks/useSession'
 import { session } from '../state/session'
 import { useChat } from '../state/chat'
+import { modelOptions } from '../state/modelOptions'
+import { useUi } from '../state/ui'
+import { Badges } from './Badges'
 import { type ChatItem, canUndoAgentTurn, formatCost, formatTokens } from '../state/chatReducer'
-
-function Badges({ m }: { m: LlmModelInfo | undefined }) {
-  if (!m) return null
-  return (
-    <span className="chat-badges">
-      <span className={`badge ${m.tools ? 'on' : 'off'}`} title={m.tools ? 'Native tool calling' : 'No native tool calling: the agent uses JSON actions (slower, less reliable)'}>
-        {m.tools ? 'tools' : 'json'}
-      </span>
-      <span className={`badge ${m.vision ? 'on' : 'off'}`} title={m.vision ? 'Can look at images: gets a preview after each drawing step' : 'Cannot look at images: works from text only'}>
-        {m.vision ? 'vision' : 'no vision'}
-      </span>
-      <span className="badge" title={m.local ? 'Runs on this machine' : 'Remote API'}>
-        {m.local ? 'local' : 'remote'}
-      </span>
-    </span>
-  )
-}
 
 function ToolCard({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }) {
   const args = item.args === undefined ? '' : JSON.stringify(item.args, null, 2)
@@ -143,14 +128,24 @@ export function ChatPanel() {
           data-testid="chat-model"
         >
           <option value="">{chat.overview?.defaultModel ? `Default (${chat.overview.defaultModel})` : 'Default (no model available)'}</option>
-          {models.map((m) => (
-            <option key={m.ref} value={m.ref} disabled={!m.available} title={m.unavailableReason}>
-              {m.ref}
-              {m.available ? '' : ' (unavailable)'}
-            </option>
+          {modelOptions(models, selectedRef).map((g) => (
+            <optgroup key={g.provider} label={g.provider}>
+              {g.models.map((m) => (
+                <option key={m.ref} value={m.ref} disabled={!m.available} title={m.unavailableReason}>
+                  {m.id}
+                  {m.available ? '' : ' (unavailable)'}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
-        <Badges m={active} />
+        <div className="chat-model-row">
+          <Badges m={active} />
+          <span className="spacer" />
+          <button title="Choose which models this list offers" onClick={() => useUi.getState().openSettings('models')} data-testid="chat-models-settings">
+            Models...
+          </button>
+        </div>
       </div>
       {chat.overviewError && <div className="msg error-msg">{chat.overviewError}</div>}
       {showHistory && <ChatHistory onOpened={() => setShowHistory(false)} />}

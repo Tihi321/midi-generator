@@ -41,8 +41,13 @@ export const providerEntrySchema = z.looseObject({
    */
   concurrency: z.union([z.number().int().positive(), z.literal('auto')]).default(4),
   rpm: z.number().int().positive().optional(),
-  /** Ask the provider which models it has (GET /models) and add the unknown ones. */
-  discover: z.boolean().default(false),
+  /**
+   * Ask the provider which models it has (GET /models) and add the unknown ones. `free`: only the models listed at price 0 are added
+   * (OpenRouter), and the configured ones are kept. They show in the model dropdown once ticked (config/models.md).
+   */
+  discover: z.union([z.boolean(), z.literal('free')]).default(false),
+  /** `discover` leaves out models whose id contains one of these words (any case). */
+  discover_skip: z.array(z.string()).default([]),
   /** Send the JSON schema as `response_format`. Set false for servers that reject a bad JSON answer instead of constraining it. */
   json_schema: z.boolean().default(true),
   /** LM Studio: load a model that isn't loaded yet, with `lmstudio_parallel`, `lmstudio_context` and `lmstudio_ttl_minutes`. */
@@ -65,7 +70,18 @@ export const rolesSchema = configBase('roles').extend({
   roles: z.record(z.string(), z.looseObject({ models: z.array(z.string()).default([]) })).default({})
 })
 
+/** config/models.md: which models the chat's dropdown offers. The app writes it from Settings > Models. */
+export const modelsSchema = configBase('models').extend({
+  /** `provider/model` refs ticked into the dropdown (providers.md and discovered models). Nothing is shown unless ticked or picked. */
+  shown: z.array(z.string()).default([]),
+  /** Not used any more (every model is opt-in); old files may still have it. */
+  hidden: z.array(z.string()).default([]),
+  /** Models added from a provider's list or by id (same fields as a providers.md model, plus `provider`). */
+  picked: z.array(providerModelSchema.extend({ provider: z.string().min(1) })).default([])
+})
+
 export type ProviderModelEntry = z.output<typeof providerModelSchema>
 export type ProviderEntry = z.output<typeof providerEntrySchema>
 export type ProvidersConfig = z.output<typeof providersSchema>
 export type RolesConfig = z.output<typeof rolesSchema>
+export type ModelsConfig = z.output<typeof modelsSchema>

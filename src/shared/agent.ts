@@ -37,7 +37,13 @@ export const LLM_IPC = {
   /** (tokens: number | null) => LlmOverview. The context LM Studio loads models with; null goes back to providers.md. */
   setContextSize: 'llm:setContextSize',
   /** () => string. Opens ~/ChiptuneStudio/config in the file manager. Resolves to an error message or ''. */
-  openConfigFolder: 'llm:openConfigFolder'
+  openConfigFolder: 'llm:openConfigFolder',
+  /** (providerId: string) => LlmCatalog. Asks an openai-compat provider for every chat model it lists (Settings > Models > Detect models). */
+  catalog: 'llm:catalog',
+  /** (refs: string[], shown: boolean) => LlmOverview. Ticks / unticks models of the chat dropdown (config/models.md). A refused tick sets `error`. */
+  showModels: 'llm:showModels',
+  /** (cmd: LlmAddModel) => LlmOverview. Adds a model by id to config/models.md; rejects when a non-local provider's prices are missing. */
+  addModel: 'llm:addModel'
 } as const
 
 /** Prefix of the undo label of an agent turn (`Agent: <first words of the prompt>`). */
@@ -118,6 +124,14 @@ export interface LlmModelInfo {
   /** USD per 1M tokens, when the config has a price. */
   priceIn?: number
   priceOut?: number
+  /** In the chat's dropdown: a providers.md model unless unticked, a discovered one only when ticked, a picked one always. */
+  shown: boolean
+  /** providers.md, found by the provider's `discover`, or added in Settings > Models. */
+  source: 'config' | 'discovered' | 'picked'
+  /** Context window in tokens, when known. */
+  context?: number
+  /** Local, or priced 0 / 0. */
+  free: boolean
 }
 
 export type KeyStatus = 'none' | 'stored' | 'env'
@@ -140,6 +154,42 @@ export interface LlmProviderInfo {
   serverContext?: number
   /** Chiptune Studio loads this provider's models (LM Studio): with `LlmOverview.contextSize`. */
   loadsModels: boolean
+  /** An openai-compat provider: Detect models (`LLM_IPC.catalog`) can list its models. */
+  canList: boolean
+  /** `providers.md` `discover`: true (the list is the server's), 'free' (its price-0 models are added), false. */
+  discover: boolean | 'free'
+}
+
+/** One model of a provider's own list (`LLM_IPC.catalog`). */
+export interface LlmCatalogModel {
+  id: string
+  /** `provider/model`. */
+  ref: string
+  context?: number
+  /** USD per 1M tokens as the provider lists them; 0 for a local provider; absent when it lists none. */
+  priceIn?: number
+  priceOut?: number
+  tools?: boolean
+  vision?: boolean
+  /** Can be ticked: local, or it has a listed price. Others need Add by id with a price. */
+  pickable: boolean
+}
+
+export interface LlmCatalog {
+  models: LlmCatalogModel[]
+  /** Why the list could not be read (no key, server down ...). */
+  error?: string
+}
+
+export interface LlmAddModel {
+  provider: string
+  id: string
+  /** USD per 1M tokens, required for a non-local provider. */
+  priceIn?: number
+  priceOut?: number
+  context?: number
+  tools?: boolean
+  vision?: boolean
 }
 
 export interface LlmOverview {

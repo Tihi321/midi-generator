@@ -4,17 +4,19 @@
 import { join } from 'node:path'
 import {
   createLlm,
+  addModel,
   deleteStoredKey,
   getStoredKey,
   resolveKey,
   setStoredKey,
+  showModels,
   type AgentModelSource,
   type KeyResolver,
   type ModelInfo,
   type ModelRegistry,
   type ModelRouter
 } from '../llm'
-import type { KeyStatus, LlmModelInfo, LlmOverview, LlmProviderInfo } from '../shared/agent'
+import type { KeyStatus, LlmAddModel, LlmCatalog, LlmModelInfo, LlmOverview, LlmProviderInfo } from '../shared/agent'
 import { CONTEXT_SIZE_MAX, CONTEXT_SIZE_MIN, readAppSettings, writeAppSettings } from './appSettings'
 import { defaultRoot } from './services'
 
@@ -42,7 +44,7 @@ export const defaultKeyOps: KeyOps = {
 export interface LlmServiceOptions {
   /** Default `~/ChiptuneStudio/config`. */
   configDir?: string
-  /** Folder with the seed providers.md and roles.md. */
+  /** Folder with the seed providers.md, roles.md and models.md. */
   seedDir: string
   keys?: KeyOps
   /** Ask local providers for their models while loading. Default true. */
@@ -77,13 +79,19 @@ function modelInfo(m: ModelInfo): LlmModelInfo {
     local: m.provider.local,
     available: m.provider.available,
     ...(m.provider.unavailableReason ? { unavailableReason: m.provider.unavailableReason } : {}),
-    ...(priced && !m.provider.local ? { priceIn: m.priceIn, priceOut: m.priceOut } : {})
+    ...(priced && !m.provider.local ? { priceIn: m.priceIn, priceOut: m.priceOut } : {}),
+    shown: m.shown,
+    source: m.source,
+    ...(m.context ? { context: m.context } : {}),
+    free: m.provider.local || !priced
   }
 }
 
 export class LlmService {
   private loading: Promise<Loaded> | null = null
   private refreshing: Promise<void> | null = null
+  /** Catalog requests in progress per provider, so a double click asks once. */
+  private listing = new Map<string, Promise<LlmCatalog>>()
   private readonly keys: KeyOps
   readonly configDir: string
   readonly dataDir: string
@@ -150,7 +158,9 @@ export class LlmService {
       keyStatus: this.keyStatus(p.apiKeyEnv),
       models: [...registry.models.values()].filter((m) => m.provider.id === p.id).map((m) => m.ref),
       ...(p.serverContext ? { serverContext: p.serverContext } : {}),
-      loadsModels: p.loadModels
+      loadsModels: p.loadModels,
+      canList: p.kind === 'openai-compat',
+      discover: p.discover
     }))
     return {
       ...base,
@@ -231,6 +241,60 @@ export class LlmService {
       await this.refreshing
     }
     return this.overview()
+  }
+
+  /** Every chat model a provider lists, for Settings > Models. A provider that can't answer gives `error` instead. */
+  catalog(providerId: string): Promise<LlmCatalog> {
+    let p = this.listing.get(providerId)
+    if (!p) {
+      p = this.get()
+        .then(async ({ registry }): Promise<LlmCatalog> => {
+          const local = !!registry.providers.get(providerId)?.local
+          const listed = await registry.catalog(providerId)
+          return {
+            models: listed.map((m) => ({
+              id: m.id,
+              ref: `${providerId}/${m.id}`,
+              ...(m.context ? { context: m.context } : {}),
+              ...(local ? { priceIn: 0, priceOut: 0 } : m.price ? { priceIn: m.price.in, priceOut: m.price.out } : {}),
+              ...(m.tools !== undefined ? { tools: m.tools } : {}),
+              ...(m.vision !== undefined ? { vision: m.vision } : {}),
+              pickable: local || !!m.price
+            }))
+          }
+        })
+        .catch((err): LlmCatalog => ({ models: [], error: err instanceof Error ? err.message : String(err) }))
+        .finally(() => {
+          this.listing.delete(providerId)
+        })
+      this.listing.set(providerId, p)
+    }
+    return p
+  }
+
+  /** Ticks / unticks models of the chat dropdown and saves it in config/models.md. A tick that was refused comes back as `error`. */
+  async showModels(refs: string[], shown: boolean): Promise<LlmOverview> {
+    const { registry } = await this.get()
+    const problems = await showModels(registry, refs, shown)
+    return this.afterEdit(problems.join('\n') || undefined)
+  }
+
+  /** Adds a model by id to config/models.md (with its price for a paid provider). Rejects when the command is not valid. */
+  async addModel(cmd: LlmAddModel): Promise<LlmOverview> {
+    const { registry } = await this.get()
+    await addModel(registry, cmd)
+    return this.afterEdit()
+  }
+
+  /** Re-reads the config files (models.md changed), keeping what discovery found. */
+  private async afterEdit(problem?: string): Promise<LlmOverview> {
+    try {
+      const { registry } = await this.get()
+      await registry.load()
+    } catch (err) {
+      problem = err instanceof Error ? err.message : String(err)
+    }
+    return this.overview(problem)
   }
 
   /** The model source for a run: `modelRef`, else the saved selection, else the role's list. */

@@ -12,6 +12,8 @@ export interface OpenAiCompatOptions {
   fetchImpl?: typeof fetch
   /** Send `schema` as `response_format`. Default true. False for servers that fail a bad answer instead of constraining it. */
   jsonSchema?: boolean
+  /** Headers sent with every request (OpenRouter's attribution headers). */
+  extraHeaders?: Record<string, string>
   /** LM Studio: before a chat request, load the model if it isn't loaded yet, with these settings. */
   loadConfig?: (model: string) => { parallel: number; context: number; ttlMinutes: number }
   /** LM Studio's `lms` command line. It loads with an idle time (`--ttl`), which the REST load can't; without it the REST API is used. */
@@ -33,8 +35,8 @@ export interface LocalModelInfo {
 
 const LOAD_TIMEOUT_MS = 10 * 60_000
 
-function headers(apiKey?: string): Record<string, string> {
-  const h: Record<string, string> = { 'content-type': 'application/json' }
+function headers(apiKey?: string, extra?: Record<string, string>): Record<string, string> {
+  const h: Record<string, string> = { 'content-type': 'application/json', ...extra }
   if (apiKey) h.authorization = `Bearer ${apiKey}`
   return h
 }
@@ -78,6 +80,9 @@ export function toOpenAiMessages(messages: ChatMessage[]): unknown[] {
       const msg: Record<string, unknown> = { role: 'assistant', content: m.toolCalls?.length && !m.content ? null : m.content }
       if (m.toolCalls?.length) {
         msg.tool_calls = m.toolCalls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.args ?? {}) } }))
+        // DeepSeek with thinking on rejects the next request when the reasoning of a tool-calling turn isn't sent back
+        const reasoning = m.toolCalls.map((c) => reasoningOf(c.providerMeta)).find((r) => r)
+        if (reasoning) msg.reasoning_content = reasoning
       }
       out.push(msg)
     } else {
@@ -91,6 +96,12 @@ export function toOpenAiMessages(messages: ChatMessage[]): unknown[] {
   return out
 }
 
+/** The reasoning kept in a tool call's `providerMeta` (`{ reasoningContent }`); other shapes (Gemini's) are ignored. */
+function reasoningOf(meta: unknown): string | undefined {
+  const r = meta && typeof meta === 'object' ? (meta as { reasoningContent?: unknown }).reasoningContent : undefined
+  return typeof r === 'string' && r ? r : undefined
+}
+
 function toOpenAiToolChoice(c: ToolChoice): unknown {
   return typeof c === 'string' ? c : { type: 'function', function: { name: c.name } }
 }
@@ -101,6 +112,10 @@ export class OpenAiCompatClient implements ProviderClient {
   private readonly f: typeof fetch
   /** Loads in progress, so parallel requests for one model load it once. */
   private loading = new Map<string, Promise<void>>()
+
+  private headers(): Record<string, string> {
+    return headers(this.opts.apiKey, this.opts.extraHeaders)
+  }
 
   constructor(private readonly opts: OpenAiCompatOptions) {
     this.id = opts.id
@@ -131,7 +146,7 @@ export class OpenAiCompatClient implements ProviderClient {
     try {
       res = await this.f(`${this.base}/chat/completions`, {
         method: 'POST',
-        headers: headers(this.opts.apiKey),
+        headers: this.headers(),
         body: JSON.stringify(body),
         signal
       })
@@ -149,6 +164,7 @@ export class OpenAiCompatClient implements ProviderClient {
     const calls: { index: number | undefined; id: string; name: string; args: string }[] = []
     const byIndex = new Map<number, (typeof calls)[number]>()
     let lastCall: (typeof calls)[number] | undefined
+    let reasoning = ''
     try {
       for await (const msg of parseSse(res.body)) {
         if (msg.data.trim() === '[DONE]') break
@@ -161,6 +177,8 @@ export class OpenAiCompatClient implements ProviderClient {
         if (json.error) throw new ProviderError(`provider error: ${JSON.stringify(json.error).slice(0, 300)}`, undefined, true)
         const choice = json.choices?.[0]
         const text = choice?.delta?.content
+        const thought = choice?.delta?.reasoning_content ?? choice?.delta?.reasoning
+        if (typeof thought === 'string') reasoning += thought
         if (choice?.finish_reason) finish = choice.finish_reason
         if (text) {
           const visible = think.push(text)
@@ -199,9 +217,11 @@ export class OpenAiCompatClient implements ProviderClient {
         `the model stopped at its token limit without an answer (${usage?.inputTokens ?? '?'} tokens in, ${usage?.outputTokens ?? '?'} out): a thinking model used up the answer budget, or the loaded model's context window is too small for this request`
       )
     }
-    for (const c of complete) {
+    for (const [i, c] of complete.entries()) {
       const { args, error } = parseToolArgs(c.args)
-      yield { type: 'tool_call', id: c.id || synthesizeCallId(), name: c.name, args, ...(error ? { argsError: error } : {}) }
+      // the reasoning of the turn rides on its first tool call (see toOpenAiMessages)
+      const providerMeta = i === 0 && reasoning ? { reasoningContent: reasoning } : undefined
+      yield { type: 'tool_call', id: c.id || synthesizeCallId(), name: c.name, args, ...(providerMeta ? { providerMeta } : {}), ...(error ? { argsError: error } : {}) }
     }
     yield { type: 'finish', reason: finishReason(finish, complete.length > 0) }
     if (usage) yield { type: 'usage', usage }
@@ -244,7 +264,7 @@ export class OpenAiCompatClient implements ProviderClient {
     }
     const load = await this.f(`${root}/api/v1/models/load`, {
       method: 'POST',
-      headers: headers(this.opts.apiKey),
+      headers: this.headers(),
       body: JSON.stringify({ model, context_length: cfg.context, parallel: cfg.parallel }),
       signal: AbortSignal.timeout(LOAD_TIMEOUT_MS)
     })
@@ -262,7 +282,7 @@ export class OpenAiCompatClient implements ProviderClient {
     }
     const res = await this.f(`${root}/api/v1/models/unload`, {
       method: 'POST',
-      headers: headers(this.opts.apiKey),
+      headers: this.headers(),
       body: JSON.stringify({ instance_id: instance }),
       signal: AbortSignal.timeout(60_000)
     })
@@ -274,7 +294,7 @@ export class OpenAiCompatClient implements ProviderClient {
     const out = new Map<string, LocalModelInfo>()
     try {
       const origin = new URL(this.base).origin
-      const res = await this.f(`${origin}/api/v0/models`, { headers: headers(this.opts.apiKey), signal: withTimeout(signal, 3000) })
+      const res = await this.f(`${origin}/api/v0/models`, { headers: this.headers(), signal: withTimeout(signal, 3000) })
       if (!res.ok) return out
       const json = (await res.json()) as { data?: { id: string; type?: string; arch?: string; capabilities?: string[]; loaded_context_length?: number }[] }
       for (const m of json.data ?? []) {
@@ -301,10 +321,58 @@ export class OpenAiCompatClient implements ProviderClient {
 
   /** Lists the model ids the server offers (`GET /models`). */
   async listModels(signal?: AbortSignal): Promise<string[]> {
-    const res = await this.f(`${this.base}/models`, { headers: headers(this.opts.apiKey), signal: withTimeout(signal, 5000) })
+    return (await this.listModelInfo(signal)).map((m) => m.id)
+  }
+
+  /** The models the server offers, with the context, output limit, prices and capabilities when it lists them (OpenRouter does, LM Studio doesn't). */
+  async listModelInfo(signal?: AbortSignal): Promise<ListedModel[]> {
+    const res = await this.f(`${this.base}/models`, { headers: this.headers(), signal: withTimeout(signal, 15000) })
     if (!res.ok) throw httpError(res.status, await res.text().catch(() => ''))
-    const json = (await res.json()) as { data?: { id: string }[] }
-    return (json.data ?? []).map((m) => m.id)
+    const json = (await res.json()) as { data?: OpenAiModelEntry[] }
+    return (json.data ?? []).filter((m) => typeof m?.id === 'string').map(listedModel)
+  }
+}
+
+/** One model of a `GET /models` answer. Only `id` is standard; OpenRouter adds the rest. */
+interface OpenAiModelEntry {
+  id: string
+  context_length?: number
+  top_provider?: { max_completion_tokens?: number | null } | null
+  /** USD per token, as strings. */
+  pricing?: { prompt?: string; completion?: string; input_cache_read?: string } | null
+  architecture?: { input_modalities?: string[]; output_modalities?: string[] } | null
+  supported_parameters?: string[] | null
+}
+
+export interface ListedModel {
+  id: string
+  context?: number
+  maxOutput?: number
+  /** USD per 1M tokens, when the server lists prices. */
+  price?: { in: number; out: number; cachedIn?: number }
+  /** False when the server says the model answers with something besides text (music, images). */
+  textOnly: boolean
+  /** Native tool calling (`supported_parameters` has `tools`); undefined when the server doesn't say. */
+  tools?: boolean
+  /** Takes images (`architecture.input_modalities` has `image`); undefined when the server doesn't say. */
+  vision?: boolean
+}
+
+function listedModel(m: OpenAiModelEntry): ListedModel {
+  const perM = (v: string | undefined) => (v === undefined || v === '' || !Number.isFinite(Number(v)) ? undefined : Number(v) * 1_000_000)
+  const pIn = perM(m.pricing?.prompt)
+  const pOut = perM(m.pricing?.completion)
+  const out = m.architecture?.output_modalities
+  const inp = m.architecture?.input_modalities
+  return {
+    id: m.id,
+    context: typeof m.context_length === 'number' && m.context_length > 0 ? m.context_length : undefined,
+    maxOutput: m.top_provider?.max_completion_tokens || undefined,
+    // a negative price is OpenRouter's "varies" (its auto router): not a price that can be shown
+    price: pIn !== undefined && pOut !== undefined && pIn >= 0 && pOut >= 0 ? { in: pIn, out: pOut, cachedIn: perM(m.pricing?.input_cache_read) } : undefined,
+    textOnly: !out || (out.length === 1 && out[0] === 'text'),
+    tools: Array.isArray(m.supported_parameters) ? m.supported_parameters.includes('tools') : undefined,
+    vision: Array.isArray(inp) ? inp.includes('image') : undefined
   }
 }
 
@@ -319,6 +387,10 @@ interface OpenAiChunk {
   choices?: {
     delta?: {
       content?: string | null
+      /** DeepSeek's thinking. */
+      reasoning_content?: string | null
+      /** OpenRouter's name for it. */
+      reasoning?: string | null
       tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string | null } }[]
     }
     finish_reason?: string | null

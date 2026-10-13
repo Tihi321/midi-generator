@@ -2,14 +2,15 @@ import { existsSync, promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { AnthropicClient } from './anthropic'
-import { providersSchema, rolesSchema } from './config'
-import type { ProviderEntry, RolesConfig } from './config'
+import { modelsSchema, providersSchema, rolesSchema } from './config'
+import type { ModelsConfig, ProviderEntry, RolesConfig } from './config'
 import { GeminiClient } from './gemini'
 import { resolveKey } from './keys'
 import type { KeyResolver } from './keys'
 import { parseMdWith } from './md'
 import { MockProvider } from './mock'
 import { OpenAiCompatClient } from './openaiCompat'
+import type { ListedModel } from './openaiCompat'
 import { computeCost } from './pricing'
 import type { ProviderClient } from './types'
 
@@ -28,7 +29,10 @@ export interface ProviderInfo {
   /** The context window the server says it runs with (Strata's `/status`), from the last `syncServerSlots`. */
   serverContext?: number
   rpm?: number
-  discover: boolean
+  /** `true`: the list is what the server has. `free`: the server's price-0 models are added, nothing is dropped. */
+  discover: boolean | 'free'
+  /** `discover` leaves out ids containing one of these words (any case). */
+  discoverSkip: string[]
   /** Send the JSON schema as `response_format` (`openai-compat`). */
   jsonSchema: boolean
   /** LM Studio: the registry loads a model that isn't loaded yet. */
@@ -57,6 +61,10 @@ export interface ModelInfo {
   vision: boolean
   extraBody: Record<string, unknown> | null
   discovered: boolean
+  /** Where it comes from: providers.md, a provider's `discover`, or config/models.md `picked`. */
+  source: 'config' | 'discovered' | 'picked'
+  /** In the chat's model dropdown: only a ticked model: in `shown` of models.md (providers.md and discovered models), or picked (always). */
+  shown: boolean
   /** LM Studio: this model's own load settings (`load_context`, `load_parallel`), over the provider defaults. */
   loadContext?: number
   loadParallel?: number
@@ -83,7 +91,7 @@ export function defaultConfigDir(): string {
   return path.join(override ? path.resolve(override) : path.join(os.homedir(), 'ChiptuneStudio'), 'config')
 }
 
-export const CONFIG_FILES = ['providers.md', 'roles.md'] as const
+export const CONFIG_FILES = ['providers.md', 'roles.md', 'models.md'] as const
 
 /** Creates `configDir` and copies the seed config files that are missing there. Existing files are never overwritten. Returns the files it wrote. */
 export async function ensureConfigDir(configDir: string, seedDir?: string): Promise<string[]> {
@@ -125,6 +133,10 @@ export class ModelRegistry {
   private serverContexts = new Map<string, number>()
   /** The context size from the app's settings: LM Studio loads every model with it, over providers.md. */
   private contextOverride: number | null = null
+  /** config/models.md: the ticked and unticked models (empty when the file doesn't exist). */
+  private choices: ModelsConfig = { kind: 'models', shown: [], hidden: [], picked: [] }
+  /** What `catalog` listed per provider, so a later pick knows the price and context. */
+  private catalogs = new Map<string, ListedModel[]>()
 
   /** `configDir` holds providers.md and roles.md (see `ensureConfigDir`). */
   constructor(
@@ -134,12 +146,18 @@ export class ModelRegistry {
     this.mock = opts.mock ?? new MockProvider('mock')
   }
 
-  /** (Re)reads providers.md and roles.md. Throws, and keeps the previous state, if a file is invalid. */
+  /** (Re)reads providers.md, roles.md and models.md (optional). Throws, and keeps the previous state, if a file is invalid. */
   async load(): Promise<void> {
     const provFile = path.join(this.configDir, 'providers.md')
     const rolesFile = path.join(this.configDir, 'roles.md')
     const prov = parseMdWith(await fs.readFile(provFile, 'utf8'), providersSchema, provFile)
     const roles = parseMdWith(await fs.readFile(rolesFile, 'utf8'), rolesSchema, rolesFile)
+    const modelsFile = path.join(this.configDir, 'models.md')
+    // a missing models.md means no choices: old config folders keep working
+    const choices: ModelsConfig = existsSync(modelsFile)
+      ? parseMdWith(await fs.readFile(modelsFile, 'utf8'), modelsSchema, modelsFile).data
+      : { kind: 'models', shown: [], hidden: [], picked: [] }
+    const shown = new Set(choices.shown)
     const keys = this.opts.keys ?? resolveKey
     const discoveredBefore = [...this.models.values()].filter((m) => m.discovered)
     this.lmLoad = { parallel: prov.data.lmstudio_parallel, context: prov.data.lmstudio_context, ttlMinutes: prov.data.lmstudio_ttl_minutes }
@@ -159,6 +177,7 @@ export class ModelRegistry {
         serverContext: this.serverContexts.get(p.id),
         rpm: p.rpm,
         discover: p.discover,
+        discoverSkip: p.discover_skip,
         jsonSchema: p.json_schema,
         loadModels: p.load_models,
         available: false
@@ -183,10 +202,36 @@ export class ModelRegistry {
           tools: m.tools ?? !p.local,
           vision: m.vision,
           extraBody: m.extra_body ?? null,
-          discovered: false
+          discovered: false,
+          source: 'config',
+          shown: shown.has(ref)
         })
       }
     }
+    // models picked in the Models settings; providers.md wins when it lists the model too
+    for (const m of choices.picked) {
+      const info = providers.get(m.provider)
+      const ref = `${m.provider}/${m.id}`
+      if (!info || models.has(ref)) continue
+      models.set(ref, {
+        ref,
+        provider: info,
+        id: m.id,
+        family: m.family,
+        context: m.context,
+        maxOutput: m.max_output,
+        priceIn: info.local ? 0 : m.price_in,
+        priceOut: info.local ? 0 : m.price_out,
+        priceCachedIn: info.local ? 0 : (m.price_cached_in ?? m.price_in),
+        tools: m.tools ?? !info.local,
+        vision: m.vision,
+        extraBody: m.extra_body ?? null,
+        discovered: false,
+        source: 'picked',
+        shown: true
+      })
+    }
+    this.choices = choices
     this.providers = providers
     this.models = models
     this.configured = new Map(models)
@@ -194,14 +239,14 @@ export class ModelRegistry {
     // Keep what discovery found earlier, so a config reload does not forget it.
     for (const d of discoveredBefore) {
       const prov = this.providers.get(d.provider.id)
-      if (prov && !this.models.has(d.ref)) this.models.set(d.ref, { ...d, provider: prov })
+      if (prov && !this.models.has(d.ref)) this.models.set(d.ref, { ...d, provider: prov, shown: shown.has(d.ref) })
     }
     for (const p of this.providers.values()) this.dropMissing(p)
   }
 
   /** A `discover` provider lists only the models its server reported last time (none of the configured ones it doesn't have). */
   private dropMissing(p: ProviderInfo): void {
-    const ids = p.discover ? this.installed.get(p.id) : undefined
+    const ids = p.discover === true ? this.installed.get(p.id) : undefined
     if (!ids) return
     for (const [ref, m] of this.models) if (m.provider === p && !ids.has(m.id)) this.models.delete(ref)
   }
@@ -235,6 +280,7 @@ export class ModelRegistry {
         baseUrl: info.baseUrl,
         apiKey,
         fetchImpl,
+        extraHeaders: isOpenRouter(info.baseUrl) ? OPENROUTER_HEADERS : undefined,
         jsonSchema: info.jsonSchema,
         loadConfig: info.loadModels ? (model) => this.loadConfigFor(info.id, model) : undefined,
         lmsPath: info.loadModels ? (this.opts.lmsPath === null ? undefined : (this.opts.lmsPath ?? defaultLmsPath())) : undefined
@@ -248,19 +294,60 @@ export class ModelRegistry {
   }
 
   /**
-   * Asks every provider with `discover: true` which models it has, and makes that its model list: the installed models,
-   * with the settings providers.md gives them, and the unknown ones with the family guessed from the id. Configured
-   * models the server doesn't have are left out, and so are embedding and draft models. LM Studio also reports tool and vision support.
+   * Asks every provider with `discover` set which models it has.
+   * `discover: true` (LM Studio, Ollama): the provider's list is exactly its installed models, with the settings providers.md gives them,
+   * and the unknown ones with the family guessed from the id. Configured models the server doesn't have are left out, and so are embedding
+   * and draft models. LM Studio also reports tool and vision support.
+   * `discover: free` (OpenRouter): adds the text models listed at price 0, with their context, tools and vision; nothing is dropped.
+   * Discovered models only reach the chat's dropdown once ticked (`shown`).
    */
   async discover(signal?: AbortSignal): Promise<{ provider: string; found: number; error?: string }[]> {
     const out: { provider: string; found: number; error?: string }[] = []
+    const shown = new Set(this.choices.shown)
     for (const p of this.providers.values()) {
       if (!p.discover || !p.available || !(p.client instanceof OpenAiCompatClient)) continue
       try {
-        const listed = await p.client.listModels(signal)
+        const listed = await p.client.listModelInfo(signal)
+        if (p.discover === 'free') {
+          const found = new Set<string>()
+          for (const m of listed) {
+            if (!m.textOnly || /embed/i.test(m.id) || skipsDiscovered(p, m.id) || !m.price || m.price.in !== 0 || m.price.out !== 0) continue
+            const ref = `${p.id}/${m.id}`
+            found.add(ref)
+            if (this.models.has(ref)) continue
+            const known = this.configured.get(ref)
+            this.models.set(
+              ref,
+              known
+                ? { ...known, provider: p }
+                : {
+                    ref,
+                    provider: p,
+                    id: m.id,
+                    family: guessFamily(m.id),
+                    context: m.context,
+                    maxOutput: m.maxOutput,
+                    priceIn: 0,
+                    priceOut: 0,
+                    priceCachedIn: 0,
+                    tools: m.tools ?? !p.local,
+                    vision: m.vision ?? false,
+                    extraBody: null,
+                    discovered: true,
+                    source: 'discovered',
+                    shown: shown.has(ref)
+                  }
+            )
+          }
+          // a free model OpenRouter no longer lists goes too
+          for (const [ref, m] of this.models) if (m.provider === p && m.source === 'discovered' && !found.has(ref)) this.models.delete(ref)
+          out.push({ provider: p.id, found: found.size })
+          continue
+        }
         const info = await p.client.localModelInfo(signal)
+        const byId = new Map(listed.map((m) => [m.id, m]))
         // LM Studio's own list has every downloaded model (`/v1/models` may list only the loaded ones) and marks the embedding and draft ones
-        const ids = [...new Set([...listed, ...info.keys()])].filter((id) => info.get(id)?.chat ?? !/embed/i.test(id))
+        const ids = [...new Set([...byId.keys(), ...info.keys()])].filter((id) => (info.get(id)?.chat ?? !/embed/i.test(id)) && !skipsDiscovered(p, id))
         this.installed.set(p.id, new Set(ids))
         this.dropMissing(p)
         for (const id of ids) {
@@ -272,18 +359,22 @@ export class ModelRegistry {
             continue
           }
           const li = info.get(id)
+          const lm = byId.get(id)
           this.models.set(ref, {
             ref,
             provider: p,
             id,
             family: guessFamily(id),
+            context: lm?.context,
             priceIn: 0,
             priceOut: 0,
             priceCachedIn: 0,
-            tools: li?.tools ?? !p.local,
-            vision: li?.vision ?? false,
+            tools: li?.tools ?? lm?.tools ?? !p.local,
+            vision: li?.vision ?? lm?.vision ?? false,
             extraBody: null,
-            discovered: true
+            discovered: true,
+            source: 'discovered',
+            shown: shown.has(ref)
           })
         }
         // the context the model is loaded with, unless providers.md says otherwise (a model already loaded counts as it is)
@@ -297,6 +388,25 @@ export class ModelRegistry {
       }
     }
     return out
+  }
+
+  /**
+   * Every chat model an openai-compat provider lists (`GET /models`), whether it is in the dropdown or not, for Settings > Models.
+   * Text-only, no embedding models, no `discover_skip` ones. The list is kept, so picking one later knows its price and context.
+   */
+  async catalog(providerId: string, signal?: AbortSignal): Promise<ListedModel[]> {
+    const p = this.providers.get(providerId)
+    if (!p) throw new Error(`no provider "${providerId}"`)
+    if (!p.available) throw new Error(p.unavailableReason ?? 'not available')
+    if (!(p.client instanceof OpenAiCompatClient)) throw new Error(`a ${p.kind} provider can't list its models: add them to providers.md`)
+    const listed = (await p.client.listModelInfo(signal)).filter((m) => m.textOnly && !/embed/i.test(m.id) && !skipsDiscovered(p, m.id))
+    this.catalogs.set(providerId, listed)
+    return listed
+  }
+
+  /** What `catalog` listed for a provider last time. */
+  listedModels(providerId: string): ListedModel[] {
+    return this.catalogs.get(providerId) ?? []
   }
 
   /**
@@ -387,12 +497,30 @@ export class ModelRegistry {
   }
 }
 
+/** A model the server lists but `discover_skip` keeps out (a word of it is in the id, any case). */
+function skipsDiscovered(p: ProviderInfo, id: string): boolean {
+  const s = id.toLowerCase()
+  return p.discoverSkip.some((w) => w && s.includes(w.toLowerCase()))
+}
+
+function isOpenRouter(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).hostname.endsWith('openrouter.ai')
+  } catch {
+    return false
+  }
+}
+
+/** OpenRouter's app attribution. */
+const OPENROUTER_HEADERS = { 'HTTP-Referer': 'https://github.com/Tihi321/midi-generator', 'X-Title': 'Chiptune Studio' }
+
 export function guessFamily(id: string): string {
   const s = id.toLowerCase()
   for (const f of ['qwen', 'nemotron', 'deepseek', 'llama', 'mistral', 'gemma', 'glm', 'kimi', 'claude', 'gemini', 'gpt']) {
     if (s.includes(f)) return f
   }
-  return 'unknown'
+  // OpenRouter ids start with the maker (`thinkingmachines/inkling:free`): the closest thing to a family
+  return s.includes('/') ? s.slice(0, s.indexOf('/')) : 'unknown'
 }
 
 /** Cost of a usage on a model in USD, 0 for local models. For display. */

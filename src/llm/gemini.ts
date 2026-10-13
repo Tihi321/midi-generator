@@ -35,7 +35,10 @@ export function toGeminiContents(messages: ChatMessage[]): Content[] {
         names.set(c.id, c.name)
         parts.push({
           functionCall: { name: c.name, args: c.args && typeof c.args === 'object' ? c.args : {} },
-          ...(c.providerMeta && typeof c.providerMeta === 'object' ? (c.providerMeta as Record<string, unknown>) : {})
+          // only the thought signature: the meta of another provider (after a fallback) is not Gemini's
+          ...(typeof (c.providerMeta as { thoughtSignature?: unknown } | undefined)?.thoughtSignature === 'string'
+            ? { thoughtSignature: (c.providerMeta as { thoughtSignature: string }).thoughtSignature }
+            : {})
         })
       }
       out.push({ role: 'model', parts: parts.length ? parts : [{ text: '' }] })

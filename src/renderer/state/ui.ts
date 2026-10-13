@@ -5,6 +5,7 @@
 import { create } from 'zustand'
 import type { Clip, GridPoint } from '../lib/trackerGrid'
 
+export type SettingsTab = 'providers' | 'models' | 'mcp'
 export type DialogId = null | 'settings' | 'new' | 'open' | 'save' | 'export' | 'saveAsset'
 export type CenterTab = 'tracker' | 'piano'
 export type PanelTab = 'instruments' | 'library' | 'chat'
@@ -18,6 +19,8 @@ export interface Playhead {
 
 export interface UiData {
   dialog: DialogId
+  /** The Settings tab the dialog opens on. */
+  settingsTab: SettingsTab
   centerTab: CenterTab
   /** Right column: instruments, the library or the agent chat. */
   panelTab: PanelTab
@@ -63,6 +66,8 @@ export interface UiData {
 
 export interface UiState extends UiData {
   openDialog: (d: DialogId) => void
+  /** Opens Settings on a tab. */
+  openSettings: (tab: SettingsTab) => void
   set: (patch: Partial<UiData>) => void
   setStatus: (msg: string) => void
   setPlayhead: (p: Playhead) => void
@@ -70,6 +75,7 @@ export interface UiState extends UiData {
 
 export const useUi = create<UiState>((set) => ({
   dialog: null,
+  settingsTab: 'providers',
   centerTab: 'tracker',
   panelTab: 'instruments',
   field: 0,
@@ -90,7 +96,8 @@ export const useUi = create<UiState>((set) => ({
   status: '',
   projectPath: null,
   presetRole: '',
-  openDialog: (dialog) => set({ dialog }),
+  openDialog: (dialog) => set(dialog === 'settings' ? { dialog, settingsTab: 'providers' } : { dialog }),
+  openSettings: (settingsTab) => set({ dialog: 'settings', settingsTab }),
   set: (patch) => set(patch),
   setStatus: (status) => set({ status }),
   setPlayhead: (playhead) => set({ playhead })

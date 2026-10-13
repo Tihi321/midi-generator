@@ -64,6 +64,19 @@ describe('message mapping', () => {
     })
   })
 
+  it('OpenAI: the reasoning kept on a tool call goes back as reasoning_content; other providerMeta shapes are ignored', () => {
+    const call = (providerMeta: unknown): ChatMessage[] => [{ role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 'x', args: {}, providerMeta }] }]
+    expect(toOpenAiMessages(call({ reasoningContent: 'I should draw' }))[0]).toMatchObject({ role: 'assistant', content: null, reasoning_content: 'I should draw' })
+    expect(toOpenAiMessages(call({ thoughtSignature: 'sig' }))[0]).not.toHaveProperty('reasoning_content')
+    expect(toOpenAiMessages(call({ reasoningContent: 5 }))[0]).not.toHaveProperty('reasoning_content')
+    expect(toOpenAiMessages(call(undefined))[0]).not.toHaveProperty('reasoning_content')
+  })
+
+  it('Gemini: only a thoughtSignature of the providerMeta goes into the part', () => {
+    const out = toGeminiContents([{ role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 'x', args: {}, providerMeta: { reasoningContent: 'hmm' } }] }])
+    expect(out[0]!.parts[0]).toEqual({ functionCall: { name: 'x', args: {} } })
+  })
+
   it('Anthropic: tool_use blocks, consecutive tool results merged into one user message, base64 images', () => {
     const out = toAnthropicMessages(conversation)
     expect(out).toHaveLength(4) // system dropped
@@ -209,6 +222,51 @@ describe('HTTP clients against fake servers', () => {
       ])
     const c = new OpenAiCompatClient({ id: 'x', baseUrl: base + '/v1' })
     expect((await collect(c.chat({ model: 'm', messages: [] }))).text).toBe('Done')
+  })
+
+  it('OpenAI-compatible: the reasoning of a tool-calling turn rides on its first tool call (reasoning_content and reasoning)', async () => {
+    handler = (_u, res) =>
+      sse(res, [
+        'data: {"choices":[{"delta":{"reasoning_content":"think "}}]}\n\n',
+        'data: {"choices":[{"delta":{"reasoning":"more"}}]}\n\n',
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","function":{"name":"a","arguments":"{}"}},{"index":1,"id":"t2","function":{"name":"b","arguments":"{}"}}]}}]}\n\n',
+        'data: [DONE]\n\n'
+      ])
+    const c = new OpenAiCompatClient({ id: 'x', baseUrl: base + '/v1' })
+    const r = await collect(c.chat({ model: 'm', messages: [] }))
+    expect(r.toolCalls.map((t) => t.providerMeta)).toEqual([{ reasoningContent: 'think more' }, undefined])
+    // no reasoning: no providerMeta
+    handler = (_u, res) => sse(res, ['data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","function":{"name":"a","arguments":"{}"}}]}}]}\n\n', 'data: [DONE]\n\n'])
+    expect((await collect(c.chat({ model: 'm', messages: [] }))).toolCalls[0]).not.toHaveProperty('providerMeta')
+  })
+
+  it('OpenAI-compatible: listModelInfo reads OpenRouter prices (per token to per 1M), modalities and supported parameters; sends extra headers', async () => {
+    handler = (_u, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          data: [
+            { id: 'a/b:free', context_length: 131072, top_provider: { max_completion_tokens: 8192 }, pricing: { prompt: '0', completion: '0' }, architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] }, supported_parameters: ['tools', 'max_tokens'] },
+            { id: 'c/d', pricing: { prompt: '0.0000003', completion: '0.0000012', input_cache_read: '0.00000006' }, architecture: { output_modalities: ['text', 'image'] }, supported_parameters: ['max_tokens'] },
+            { id: 'openrouter/auto', pricing: { prompt: '-1', completion: '-1' } },
+            { id: 'plain' },
+            { nope: true }
+          ]
+        })
+      )
+    }
+    const c = new OpenAiCompatClient({ id: 'x', baseUrl: base + '/v1', extraHeaders: { 'X-Title': 'Chiptune Studio' } })
+    const list = await c.listModelInfo()
+    expect(list).toHaveLength(4)
+    expect(list[0]).toEqual({ id: 'a/b:free', context: 131072, maxOutput: 8192, price: { in: 0, out: 0, cachedIn: undefined }, textOnly: true, tools: true, vision: true })
+    expect(list[1]!.price!.in).toBeCloseTo(0.3)
+    expect(list[1]!.price!.out).toBeCloseTo(1.2)
+    expect(list[1]!.price!.cachedIn).toBeCloseTo(0.06)
+    expect(list[1]).toMatchObject({ textOnly: false, tools: false, vision: undefined })
+    expect(list[2]!.price).toBeUndefined()
+    expect(list[3]).toMatchObject({ id: 'plain', textOnly: true, tools: undefined, vision: undefined })
+    expect(lastHeaders['x-title']).toBe('Chiptune Studio')
+    expect(await c.listModels()).toEqual(['a/b:free', 'c/d', 'openrouter/auto', 'plain'])
   })
 
   it('OpenAI-compatible: sends the JSON schema as response_format unless jsonSchema is false', async () => {
