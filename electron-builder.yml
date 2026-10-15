@@ -1,4 +1,5 @@
-# Windows installer (NSIS, per user, x64). Build it with `yarn dist`.
+# Windows builds (x64): an NSIS installer (per user) and a portable single .exe. Build both with `yarn dist`.
+# The app icon is build/icon.ico (regenerate with `yarn gen:icon`).
 appId: com.tihi321.chiptune-studio
 productName: Chiptune Studio
 copyright: Chiptune Studio
@@ -8,6 +9,7 @@ directories:
 files:
   - out/**
   - package.json
+  - build/icon.png
   - '!out/**/*.map'
 # No asar archive: the keyring .node file cannot be loaded from inside an archive, and the MCP stdio shim
 # (out/mcp-stdio/index.js) must be runnable as a real file path by external MCP clients.
@@ -18,12 +20,18 @@ extraResources:
   - from: docs
     to: docs
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch: [x64]
-  artifactName: Chiptune-Studio-Setup-${version}.${ext}
+    - target: portable
+      arch: [x64]
 nsis:
+  artifactName: Chiptune-Studio-Setup-${version}.${ext}
   oneClick: true
   perMachine: false
   runAfterFinish: true
   deleteAppDataOnUninstall: false
+# Unpacks itself to a temp folder on every launch; settings and files still live in the user profile.
+portable:
+  artifactName: Chiptune-Studio-${version}-portable.${ext}

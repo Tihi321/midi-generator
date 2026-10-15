@@ -49,6 +49,7 @@ function createWindow(): BrowserWindow {
     width: 1400,
     height: 900,
     title: 'Chiptune Studio',
+    icon: join(app.getAppPath(), 'build/icon.png'),
     backgroundColor: '#14161c',
     show: false,
     webPreferences: {

@@ -8,9 +8,25 @@ yarn dev          # the app with hot reload
 yarn build        # build the app and the stdio MCP shim
 yarn test         # vitest
 yarn typecheck && yarn lint
+yarn gen:icon     # redraw build/icon.png and build/icon.ico from the sprite in scripts/gen-icon.mjs
 ```
 
 The tool guide for LLM agents is `docs/llm-guide.md`. It is compiled into `src/tools/guideText.ts`: after editing it run `yarn gen:guide`.
+
+## Building the .exe (Windows)
+
+```
+yarn dist            # both: installer + portable exe, in dist/
+yarn dist:installer  # only dist/Chiptune-Studio-Setup-<version>.exe
+yarn dist:portable   # only dist/Chiptune-Studio-<version>-portable.exe
+yarn dist:dir        # only dist/win-unpacked/ (no packaging, fastest, for testing)
+```
+
+- **Installer** (`Chiptune-Studio-Setup-<version>.exe`): one-click, per-user install (no admin), adds Start menu and desktop shortcuts, installs to `%LOCALAPPDATA%\Programs\Chiptune Studio`. The best choice for MCP clients, since the stdio shim then has a stable path (`resources\app\out\mcp-stdio\index.js` next to the exe).
+- **Portable** (`Chiptune-Studio-<version>-portable.exe`): a single exe, nothing installed. It unpacks to a temp folder on every launch (a few seconds), so the stdio shim path changes between runs; use the HTTP MCP endpoint with it.
+- `dist/win-unpacked/Chiptune Studio.exe` runs as-is too.
+
+The version comes from `package.json`. The icon is `build/icon.ico` (`yarn gen:icon` redraws it from the sprite in `scripts/gen-icon.mjs`). Builds are not code-signed, so Windows SmartScreen shows "Windows protected your PC" on first run: click **More info > Run anyway**.
 
 ## MCP server
 

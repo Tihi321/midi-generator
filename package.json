@@ -19,7 +19,11 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "lint": "eslint .",
     "gen:guide": "node scripts/gen-guide.mjs",
-    "dist": "yarn build && electron-builder --config electron-builder.yml --win nsis --x64"
+    "gen:icon": "node scripts/gen-icon.mjs",
+    "dist": "yarn build && electron-builder --config electron-builder.yml --win",
+    "dist:installer": "yarn build && electron-builder --config electron-builder.yml --win nsis --x64",
+    "dist:portable": "yarn build && electron-builder --config electron-builder.yml --win portable --x64",
+    "dist:dir": "yarn build && electron-builder --config electron-builder.yml --win --dir"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
