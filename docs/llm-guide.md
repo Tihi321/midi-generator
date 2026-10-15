@@ -4,12 +4,13 @@ You are driving Chiptune Studio, a chiptune/MIDI composer for 8-bit and 16-bit g
 
 <!-- short:start -->
 Chiptune Studio quick guide
-- Chips: 8-bit NES (P1 P2 pulse, TR triangle, NO noise) and Game Boy (P1 P2 pulse, WV wave, NO noise); 16-bit Genesis (F1-F6 FM, S1-S3 PSG, NO), SNES (V1-V8 samples + echo), PC Engine (C1-C6 wavetable, noise C5/C6). Songs are strict by default: chip limits come back as errors with the fix.
+- Chips: NES (P1 P2 pulse, TR triangle, NO noise), Game Boy (P1 P2 pulse, WV wave, NO), Genesis (F1-F6 FM, S1-S3 PSG, NO), SNES (V1-V8 samples + echo), PC Engine (C1-C6 wavetable). Songs are strict: chip limits come back as errors with the fix.
 - Workflow: `get_song` -> `get_mood_recipe` -> `new_song` (chip, bpm, key, mood) -> `add_instrument` ({"preset":"lead"}: a role or preset id) -> drums (`write_drums`), bass, harmony/arpeggio, lead (`write_pattern`, `write_melody`) -> `set_orders` + `set_loop` -> `analyze_song` -> `render_preview` -> `export_wav`.
 - Tracker text: "0 | E-5 @lead v12 | C-4 @arp 037 | A-2 @bass | C-4 @kick". Channels split by "|"; tokens in any order: note (C-4, C#4, Db4), === off, ^^^ release, @instrument, vNN (0-15), 3-char effect (047 arpeggio, 4A2 vibrato, W02 duty). One note per cell: a chord on one channel is an arpeggio (047).
-- Melody: "@lead v12 E5:2 G5:2 r:2 {A4 C5 E5}:8" (:N = rows). Drums: {"legend":{"K":"kick","S":"snare","h":"hat"},"steps":"K.h.S.h.K.KhS.h.","repeat":4}; roles add their instruments themselves.
+- Melody: "@lead v12 E5:2 G5:2 r:2 {A4 C5 E5}:8" (:N = rows). Drums: {"legend":{"K":"kick","S":"snare","h":"hat"},"steps":"K.h.S.h.K.KhS.h.","repeat":4}.
 - 16 rows = 1 bar; a pattern = 64 rows = 4 bars; at most 64 rows per write call. Each order row picks a pattern per channel: `set_orders` [0,1,2,1] builds intro/A/B/A; `set_loop` sets the loop start.
-- Check with `analyze_song` and `render_preview`; `undo` fixes mistakes. Errors are text: read them and correct the call. If References exist: `get_style_context`.
+- Fast: `compose_track` {mood, chip, seed} makes a loop; `render_audio` {path} writes ogg + loop points.
+- Check with `analyze_song` and `render_preview`; `undo` fixes mistakes. Errors are text: correct the call. With References: `get_style_context`.
 <!-- short:end -->
 
 ## Workflow for a new track
@@ -223,6 +224,10 @@ Each channel allows only some effects and a limited number of effect columns (`u
 | desert | 90-120 | D E A G | phrygian dominant | b2 and raised 3rd, hand-drum groove |
 | castle | 80-120 | D A E C | harmonic minor, dorian | stately, march drums |
 | sad | 55-85 | A D E C | minor, dorian | long descending lines, soft or no drums |
+| ambient | 60-76 | C D F A | lydian, pentatonic, dorian | very calm: slow pads, long soft notes, no drums |
+| lullaby | 60-78 | F C G D | major, pentatonic | gentle rocking bass, simple tune, no drums |
+| peaceful | 66-88 | G C D F | major, pentatonic, lydian | warm and unhurried, sparse melody, no drums |
+| mysterious-calm | 60-80 | D A E C | dorian, melodic minor, lydian, whole-tone | quiet and curious, hovering chords, faint pulse |
 
 The recipe also lists progressions, drum styles, the arrangement (sections with bars; 4 bars = one 64-row pattern) and per-channel parts for your chip.
 
@@ -245,9 +250,20 @@ The recipe also lists progressions, drum styles, the arrangement (sections with 
 ## Export
 
 - `export_wav`: stereo 16-bit WAV, 44.1 kHz (or 48 kHz). A looping song is rendered intro + loop body and gets loop points in a `smpl` chunk (Godot, FMOD, Wwise read it); `loops` repeats the body (default 1); `fadeOutSec` makes a faded, non-looping file instead. `stems: true` also writes `<name>_<channelId>.wav` per channel with notes. Relative names go to `~/ChiptuneStudio/exports`. The result gives paths, length, peak level and loop points; a silent result means something is wrong (check instruments and muted channels).
+- `render_audio` writes ONE audio file (ogg, mp3 or wav) for a game or app; see "Compose in one call and render audio" below.
 - `save_project` writes a lossless `.ctune` file; `open_project` loads one (undoable).
 - `play` / `stop` play the song in the editor for the user.
 - `export_midi`, `import_midi` and `convert_chip` are described in the next section (the asset library after it).
+
+## Compose in one call and render audio (for other apps)
+
+Another app (for example VN Studio) can drive Chiptune Studio without a window: start it headless with `yarn mcp` (`electron . --mcp-only [--port N]`, default port 7458; needs `yarn build` first). Every tool then runs on a headless song, and the existing tools (`write_pattern`, `export_wav`, ...) act on the current song as usual. Playback (`play`) needs the window.
+
+- `compose_track` composes a whole track in one call and makes it the current song: `{"mood":"ambient","chip":"snes","seed":1}`. Arguments: `mood` (all moods, including the calm `ambient`, `lullaby`, `peaceful`, `mysterious-calm`), optional `chip` (default per mood: SNES for calm moods, NES otherwise), `bpm`, `key`, `scale`, `bars` (default 16) or `seconds` (rounded to whole bars), `loop` (default true), `seed`, `instruments` ({"V4":"snes.flute.soft"}), `name`. The same seed and arguments give the same song; the seed used is returned. It writes a progression, bass, pads, a phrased melody and, for lively moods, drums. Calm moods use the soft presets (`snes.pad.soft-strings`, `snes.strings.swell`, `snes.pad.dream`, `snes.bell.soft`, `snes.flute.soft`, `snes.bass.soft`, `gb.pad.soft-square`, `gb.lead.soft-square`, `nes.lead.soft`, `nes.pad.soft-long`, `nes.bell.soft`), 60-90 BPM and no or very quiet drums. With `loop` the loop covers the whole song and ends exactly at the song end. Refine it afterwards with `write_pattern` / `write_melody`, or call it again with another seed.
+- `render_audio` `{"path":"C:\music\theme.ogg"}` renders a song to one file: `format` ogg (default, ffmpeg libvorbis), mp3 or wav; `loops` (1..8), `fadeOutSec` (makes it non-looping), `sampleRate`, and `song` (an id from `list_songs`, default the current one). ffmpeg comes from `FFMPEG_PATH` or PATH; without it a WAV is written next to the path and `warning` says so. A looping song without a fade is rendered intro + loop body x loops, and the file ends exactly at the loop end: a player loops from `loopStartSec` to the end of the file (Ren'Py: `play music "<loop 3.2>theme.ogg"`). The WAV also carries the `smpl` loop chunk. Absolute paths are used as given (folders are created).
+- `save_song` / `open_song` / `list_songs` / `delete_song` keep several songs per session. `compose_track` and `open_song` park the song they replace; `save_song {"path"}` writes the lossless `.ctune` file; `open_song {"path","exportTo","exportFormat"}` loads one and, with `exportTo`, exports the looping audio on every save. `delete_song` never deletes files.
+- The new tools end their reply with one JSON text object: `compose_track` `{songId,name,chip,bpm,key,scale,mood,bars,seed,durationSec,loop:{startBar,endBar}|null,channels}`, `render_audio` `{path,format,sampleRate,durationSec,loopStartSec,loopEndSec,loopStartSample,loopEndSample,warning?}`, `save_song` `{songId,path}`, `list_songs` `{songs:[{songId,name,path,chip,bpm,current}]}`, `open_song` `{songId,name,path}`, `delete_song` `{deleted:true}`.
+- In the app window `--open <file.ctune> [--export-to <file>] [--export-format ogg|wav]` opens a song at launch (a second launch hands it to the running window); every save then also exports the audio to `--export-to` and writes `<exportTo>.json` next to it (`{loopStartSec, loopEndSec, durationSec, sampleRate}`, named after the file actually written).
 
 ## MIDI
 

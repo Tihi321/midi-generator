@@ -237,6 +237,50 @@ const SEEDS: MoodSeed[] = [
       'Keep drums to a soft kick, or none at all.',
       'A high bell or pluck at phrase ends adds a tear-drop sparkle.'
     ]
+  },
+  {
+    id: 'ambient', name: 'Ambient', description: 'Very calm, spacious background music: slow pads, long soft notes, no drums.',
+    bpm: [60, 76], keys: ['C', 'D', 'F', 'A'], scales: ['lydian', 'major-pentatonic', 'dorian', 'major'], lead: 'bell', harmony: 'pad', pad: 'strings',
+    sections: [['A', 8], ['B', 8]], loopFrom: 'A',
+    techniques: [
+      'Change the chord only every two bars and let the notes ring into each other.',
+      'Melody is a few long notes with rests between them; mostly stepwise, in the upper register.',
+      'Use soft pads and strings with slow attacks; no drums, or a very quiet pulse at most.',
+      'End the last bar on a chord that also works as the first, so the loop has no seam.'
+    ]
+  },
+  {
+    id: 'lullaby', name: 'Lullaby', description: 'Gentle, rocking and tender, like a bedtime song: simple tune over slow major chords.',
+    bpm: [60, 78], keys: ['F', 'C', 'G', 'D'], scales: ['major', 'major-pentatonic'], lead: 'bell', harmony: 'pad', pad: 'strings',
+    sections: [['A', 8], ['B', 8]], loopFrom: 'A',
+    techniques: [
+      'Write a very simple, stepwise tune that repeats with a small change (call and answer).',
+      'Rock the bass root and fifth in whole notes; keep chords plain (I, IV, V, vi).',
+      'Use a music-box or soft flute lead and a warm pad; no drums.',
+      'Finish phrases on a long chord tone and rest before the next one.'
+    ]
+  },
+  {
+    id: 'peaceful', name: 'Peaceful', description: 'Warm, safe and unhurried: sunlit meadow or cozy room music with a slow melody.',
+    bpm: [66, 88], keys: ['G', 'C', 'D', 'F'], scales: ['major', 'major-pentatonic', 'lydian'], lead: 'flute', harmony: 'pad', pad: 'strings',
+    sections: [['A', 8], ['B', 8]], loopFrom: 'A',
+    techniques: [
+      'Spaced, singable melody in the major pentatonic: half and quarter notes with rests.',
+      'Slow chords (one per two bars) with maj7 and add9 colours; arpeggiate softly if the chip has one voice for harmony.',
+      'Keep every part soft; use the soft presets; no drums.',
+      'Answer a phrase with a lower echo of itself.'
+    ]
+  },
+  {
+    id: 'mysterious-calm', name: 'Mysterious calm', description: 'Quiet and curious: unresolved harmony, sparse notes and a faint pulse, but not scary.',
+    bpm: [60, 80], keys: ['D', 'A', 'E', 'C'], scales: ['dorian', 'melodic-minor', 'lydian', 'whole-tone'], lead: 'bell', harmony: 'pad', pad: 'choir',
+    sections: [['A', 8], ['B', 8]], loopFrom: 'A',
+    techniques: [
+      'Hover between two chords a step or a fourth apart and avoid strong cadences.',
+      'Sparse bell or flute notes with long gaps; occasional leap of a fifth or a seventh.',
+      'A very soft, slow kick pulse (or nothing) keeps time without driving.',
+      'Pad and choir sounds with slow attacks make the harmony breathe.'
+    ]
   }
 ]
 
@@ -370,7 +414,9 @@ const MOOD_ALIASES: Record<string, string> = {
   scary: 'spooky', cave: 'dungeon', lofi: 'chill', relaxed: 'chill', calm: 'chill', village: 'town', field: 'overworld', world: 'overworld',
   map: 'overworld', win: 'victory', fanfare: 'victory', gameover: 'game-over', lose: 'game-over', defeat: 'game-over', menu: 'title',
   intro: 'title', store: 'shop', market: 'shop', water: 'underwater', ocean: 'underwater', sea: 'underwater', arabian: 'desert',
-  egypt: 'desert', fortress: 'castle', gothic: 'castle', melancholy: 'sad', sorrow: 'sad', emotional: 'sad'
+  egypt: 'desert', fortress: 'castle', gothic: 'castle', melancholy: 'sad', sorrow: 'sad', emotional: 'sad',
+  serene: 'peaceful', tranquil: 'peaceful', quiet: 'peaceful', sleep: 'lullaby', bedtime: 'lullaby', dreamy: 'ambient', drone: 'ambient',
+  mysterious: 'mysterious-calm', enigmatic: 'mysterious-calm', curious: 'mysterious-calm'
 }
 
 export function findMood(ref: string): MoodRecipe | undefined {

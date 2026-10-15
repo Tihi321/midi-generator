@@ -55,7 +55,7 @@ describe('node services', () => {
     const handlers = new Map<string, (e: unknown, ...a: unknown[]) => unknown>()
     registerServices({ handle: (c, l) => void handlers.set(c, l) }, createNodeServices(join(root, 'd')))
     const channels = Object.values(IPC).filter((c) => c.startsWith('fs:') )
-    expect(channels.length).toBe(4)
+    expect(channels.length).toBe(5)
     for (const c of channels) expect(handlers.has(c), c).toBe(true)
     const p = (await handlers.get(IPC.fsResolveExportPath)!({}, 'q.wav')) as string
     await handlers.get(IPC.fsWriteFile)!({}, p, 'data')

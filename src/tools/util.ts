@@ -14,6 +14,11 @@ export function ok(text: string): ToolResult {
   return textResult(text)
 }
 
+/** Human-readable text first, then ONE JSON object as the last text item (the machine-readable part for other apps). */
+export function okJson(text: string, data: Record<string, unknown>): ToolResult {
+  return { content: [{ type: 'text', text }, { type: 'text', text: JSON.stringify(data) }] }
+}
+
 export function plural(n: number, word: string, pluralForm = `${word}s`): string {
   return `${n} ${n === 1 ? word : pluralForm}`
 }

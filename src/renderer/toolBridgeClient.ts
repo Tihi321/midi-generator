@@ -4,9 +4,9 @@
 
 import { IPC, type ChiptuneStudioApi, type ToolCancelRequest, type ToolExecuteRequest, type ToolResultPayload, type ToolTurnRequest, type Unsubscribe } from '../shared/ipc'
 import { type ToolRegistry, type ToolSession, createToolHost } from '../tools/registry'
-import { renderSong } from '../core/synth'
+import { createInProcessAudio } from '../tools/inProcessAudio'
 import { ASSETS_IPC } from '../shared/assets'
-import type { AssetData, AssetMeta, AssetService, AudioService, ToolServices } from '../tools/services'
+import type { AssetData, AssetMeta, AssetService, AudioFormat, AudioService, EncodeResult, StudioHost, ToolServices } from '../tools/services'
 
 function defaultApi(): ChiptuneStudioApi {
   return (globalThis as unknown as { chiptuneStudio: ChiptuneStudioApi }).chiptuneStudio
@@ -17,17 +17,7 @@ function defaultApi(): ChiptuneStudioApi {
  * passes the real one (src/renderer/audioService.ts: render Worker + AudioWorklet) from main.tsx.
  */
 export function createHeadlessAudio(): AudioService {
-  return {
-    render: async (song, opts = {}) => {
-      const r = renderSong(song, { sampleRate: opts.sampleRate ?? 44100, loops: opts.loops ?? 1, fadeOutSec: opts.fadeOutSec ?? 0, stems: opts.stems ?? false })
-      return { sampleRate: r.sampleRate, L: r.L, R: r.R, stems: r.stems, loopStart: r.loopStart, loopEnd: r.loopEnd }
-    },
-    play: async () => {
-      throw new Error('Playback is not available here: there is no audio output.')
-    },
-    stop: async () => undefined,
-    position: async () => ({ playing: false, order: 0, row: 0, seconds: 0 })
-  }
+  return createInProcessAudio()
 }
 
 /** The asset library in main (src/main/assets.ts) over IPC. */
@@ -45,7 +35,7 @@ export function createIpcAssets(api: ChiptuneStudioApi = defaultApi()): AssetSer
 }
 
 /** ToolServices that call the main process (src/main/services.ts) through `window.chiptuneStudio.invoke`. */
-export function createIpcServices(api: ChiptuneStudioApi = defaultApi(), audio: AudioService = createHeadlessAudio()): ToolServices {
+export function createIpcServices(api: ChiptuneStudioApi = defaultApi(), audio: AudioService = createHeadlessAudio(), studio?: StudioHost): ToolServices {
   return {
     writeFile: (path, data) => api.invoke<void>(IPC.fsWriteFile, path, data),
     readFile: async (path) => {
@@ -55,7 +45,9 @@ export function createIpcServices(api: ChiptuneStudioApi = defaultApi(), audio: 
     resolveExportPath: (name, dir) => api.invoke<string>(IPC.fsResolveExportPath, name, dir),
     resolveProjectPath: (name, dir) => api.invoke<string>(IPC.fsResolveProjectPath, name, dir),
     audio,
-    assets: createIpcAssets(api)
+    assets: createIpcAssets(api),
+    encodeAudio: (wav: Uint8Array, path: string, format: AudioFormat) => api.invoke<EncodeResult>(IPC.fsEncodeAudio, wav, path, format),
+    ...(studio ? { studio } : {})
   }
 }
 

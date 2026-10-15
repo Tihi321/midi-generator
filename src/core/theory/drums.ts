@@ -88,6 +88,9 @@ export const DRUM_STYLES: DrumStyle[] = [
   S('castle-march', 'Castle march', 'Stately kick and a snare that leans into beat 4.', ['castle', 'boss'], [90, 130], {
     kick: 'x.......x.......', snare: '....x.......x.x.', hihat: 'x...x...x...x...', crash: 'x...............'
   }),
+  S('soft-pulse', 'Soft pulse', 'A single quiet kick on beat 1 of each bar and a faint tick: keeps time without driving. Optional for calm moods (compose_track uses it only for mysterious-calm).', ['mysterious-calm', 'ambient', 'lullaby', 'peaceful'], [60, 90], {
+    kick: 'x...............', hihat: '........x.......'
+  }, FILL_TOM),
   S('title-pulse', 'Title pulse', 'Gentle kick with offbeat hats for a title screen.', ['title', 'overworld'], [90, 120], {
     kick: 'x.......x.......', hihat: '..x...x...x...x.', snare: '....x.......x...'
   })

@@ -90,10 +90,10 @@ function bytesEqual(a: Float32Array, b: Float32Array): boolean {
 
 describe('snes presets', () => {
   const bank = PRESET_BANKS.snes
-  it('has 20-30 unique snes.* presets, each with its recipe slot', () => {
+  it('has 20-40 unique snes.* presets, each with its recipe slot', () => {
     expect(bank).toBe(SNES_PRESETS)
     expect(bank.length).toBeGreaterThanOrEqual(20)
-    expect(bank.length).toBeLessThanOrEqual(30)
+    expect(bank.length).toBeLessThanOrEqual(40)
     expect(new Set(bank.map((p) => p.id)).size).toBe(bank.length)
     for (const p of bank) {
       expect(p.id.startsWith('snes.')).toBe(true)

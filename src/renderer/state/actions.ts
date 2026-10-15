@@ -22,6 +22,10 @@ import {
   resolvePreset,
   serializeProject
 } from '../../core'
+import { IPC, type OpenSongRequest } from '../../shared/ipc'
+import { type StudioHost, type ToolServices, exportWithSidecar } from '../../tools'
+import { createRendererAudio } from '../audioService'
+import { createIpcServices } from '../toolBridgeClient'
 import { buildAuditionSong } from '../lib/audition'
 import { deleteNoteDiffs, deriveNotes } from '../lib/pianoRoll'
 import { decodeText, readFile, resolveProjectPath, writeFile } from '../lib/files'
@@ -420,6 +424,7 @@ export function newSong(opts: NewSongOptions): boolean {
   return attempt(() => {
     engine.stop()
     session.replaceSong(createStarterSong(opts), { history: 'clear' })
+    session.exportTarget = null
     session.setCurrentInstrument(0)
     resetViewState()
     useUi.getState().set({ projectPath: null })
@@ -432,6 +437,8 @@ export function openProjectText(text: string, path: string | null): boolean {
     const song = parseProject(text)
     engine.stop()
     session.replaceSong(song, { history: 'clear' })
+    session.exportTarget = null
+    if (path) session.songPaths.set(song.id, path)
     session.setCurrentInstrument(song.instruments.length > 0 ? 0 : -1)
     resetViewState()
     useUi.getState().set({ projectPath: path })
@@ -462,8 +469,69 @@ export async function saveProject(name?: string): Promise<boolean> {
     return p
   })
   if (!path) return false
+  session.songPaths.set(session.song.id, path)
   ui.set({ projectPath: path })
   ui.setStatus(`Saved ${path}`)
+  await exportOnSave()
+  return true
+}
+
+// ---------------------------------------------------------------- tool services and the round trip with other apps
+
+// The song id changes when a tool (compose_track, open_song, new_song) or an undo swaps the song: the project path
+// shown in the UI follows, so Ctrl+S never overwrites the file of a song that is no longer open.
+let shownSongId = session.song.id
+session.subscribe(() => {
+  if (session.song.id === shownSongId) return
+  shownSongId = session.song.id
+  useUi.setState({ projectPath: session.songPaths.get(shownSongId) ?? null })
+})
+
+async function focusWindow(): Promise<void> {
+  await window.chiptuneStudio?.invoke(IPC.appFocus).catch(() => undefined)
+}
+
+/** What open_song / save_song do in the window besides changing the session. */
+const studioHost: StudioHost = {
+  async songOpened({ path, name }) {
+    engine.stop()
+    session.setCurrentInstrument(session.song.instruments.length > 0 ? 0 : -1)
+    resetViewState()
+    useUi.getState().set({ projectPath: path })
+    useUi.getState().setStatus(`Opened ${name}`)
+    await focusWindow()
+  },
+  songSaved(path) {
+    useUi.getState().set({ projectPath: path })
+    useUi.getState().setStatus(`Saved ${path}`)
+  }
+}
+
+let toolServices: ToolServices | null = null
+
+/** The ToolServices of the window: files and ffmpeg in main over IPC, audio in the render Worker. */
+export function getToolServices(): ToolServices {
+  toolServices ??= createIpcServices(window.chiptuneStudio, createRendererAudio(), studioHost)
+  return toolServices
+}
+
+/** When the open song has an export target (--export-to / open_song exportTo), render the looping audio there. */
+export async function exportOnSave(): Promise<void> {
+  const target = session.exportTarget
+  if (!target) return
+  const ui = useUi.getState()
+  const out = await attemptAsync(async () => exportWithSidecar(session.song, getToolServices(), { path: target.path, format: target.format }))
+  if (out) ui.setStatus(`Saved and exported ${out.path}${out.warning ? ` (${out.warning})` : ''}`)
+}
+
+/** `--open <file> [--export-to <file>]`: open the song and keep exporting its audio on every save. */
+export async function openSongRequest(req: OpenSongRequest): Promise<boolean> {
+  const text = await attemptAsync(async () => decodeText(await readFile(req.path)))
+  if (text === null || text === undefined) return false
+  if (!openProjectText(text, req.path)) return false
+  session.exportTarget = req.exportTo ? { path: req.exportTo, format: req.exportFormat ?? 'ogg' } : null
+  if (req.exportTo) useUi.getState().setStatus(`Opened ${session.song.name}; saving exports ${req.exportFormat ?? 'ogg'} to ${req.exportTo}`)
+  await focusWindow()
   return true
 }
 

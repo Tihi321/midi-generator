@@ -42,6 +42,10 @@ export const NES_PRESETS: Preset[] = [
     arp: createMacro([12, 0], { mode: 'rel', loop: 1 })
   }),
   pulse('sfx.zap', 'zap', 'sfx', 'Laser zap: fast downward pitch slide.', { vol: { values: [15, 14, 12, 10, 8, 6, 4, 2, 0], loop: 8 }, timbre: hold([1]), pitch: { values: [-24, -24, -20, -16, -12, -8, -6, -4, -2], loop: 8 } }),
+  // soft presets for calm music: gentle swell and a long release
+  pulse('lead.soft', 'lead-soft', 'lead', 'Soft 50% pulse lead: gentle swell, long release. The default lead for calm moods.', { vol: hold([5, 7, 9, 10], [9, 8, 7, 6, 5, 4, 3, 2, 1, 0]), timbre: hold([2]) }),
+  pulse('pad.soft-long', 'pad-soft-long', 'pad', 'Quiet 50% pulse pad: very slow swell, long release. Use with a 0xy arpeggio for soft chords.', { vol: hold([0, 2, 3, 4, 5, 6, 6], [5, 4, 4, 3, 3, 2, 2, 1, 1, 0]), timbre: hold([2]) }),
+  pulse('bell.soft', 'bell-soft', 'bell', 'Soft 25% pulse bell: quiet attack that fades slowly.', { vol: { values: [10, 9, 8, 7, 6, 5, 5, 4, 4, 3, 3, 2, 2, 1, 1, 0], loop: 15 }, timbre: hold([1]) }),
   {
     id: 'nes.bass.pulse', name: 'bass-pulse', role: 'bass', channelKinds: ['pulse'],
     description: 'Pulse bass: 50% duty, use an octave below the lead (A-1 and up).',

@@ -16,13 +16,15 @@ import { playbackTools } from './playback'
 import { readingTools } from './reading'
 import { sampleTools } from './samples'
 import { songTools } from './song'
+import { studioTools } from './studio'
 import { theoryTools } from './theory'
 
-export { assetTools, channelTools, exportTools, historyTools, instrumentTools, midiTools, noteTools, orderTools, playbackTools, readingTools, sampleTools, songTools, theoryTools }
+export { assetTools, channelTools, exportTools, historyTools, instrumentTools, midiTools, noteTools, orderTools, playbackTools, readingTools, sampleTools, songTools, studioTools, theoryTools }
 
 export function allTools(): RegisteredTool[] {
   return [
     ...songTools,
+    ...studioTools,
     ...channelTools,
     ...orderTools,
     ...noteTools,

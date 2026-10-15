@@ -66,7 +66,17 @@ export const PROGRESSIONS: Progression[] = [
   P('sad-turn', 'Sad turn (i-bIII-iv-i)', 'minor', 'i bIII iv i', ['sad', 'game-over'], 'Gentle fall to the subdominant, then home.'),
   P('epic-climb', 'Epic climb (bVI-bVII-i-i)', 'minor', 'bVI bVII i i', ['heroic', 'battle', 'boss'], 'Rises into the tonic like a cadence.'),
   P('underwater-minor', 'Drift (i-bVII-bVI-bVII)', 'minor', 'i bVII bVI bVII', ['underwater', 'dungeon', 'chill'], 'Slow oscillation between neighbours; hypnotic.'),
-  P('spooky-dim', 'Diminished creep (i-iio-i-iio)', 'minor', 'i ii° i ii°', ['spooky', 'dungeon'], 'Chromatic dread.')
+  P('spooky-dim', 'Diminished creep (i-iio-i-iio)', 'minor', 'i ii° i ii°', ['spooky', 'dungeon'], 'Chromatic dread.'),
+  // ---- calm (slow harmonic rhythm: the composer plays each chord for two bars)
+  P('calm-float', 'Float (Imaj7-IVmaj7-vi7-IVmaj7)', 'major', 'Imaj7 IVmaj7 vi7 IVmaj7', ['ambient', 'peaceful', 'lullaby'], 'Soft major sevenths drifting between I, IV and vi.'),
+  P('calm-wonder', 'Wonder (Imaj7-II-IVmaj7-Imaj7)', 'major', 'Imaj7 II IVmaj7 Imaj7', ['ambient', 'peaceful'], 'Lydian colour with the major II: open, unresolved.'),
+  P('calm-meadow', 'Meadow (I-iii-IV-I)', 'major', 'I iii IV I', ['peaceful', 'lullaby', 'ambient'], 'Plain and warm; moves gently and comes home.'),
+  P('lullaby-rock', 'Lullaby (I-IV-I-V)', 'major', 'I IV I V', ['lullaby', 'peaceful'], 'The simplest rocking changes; no surprises.'),
+  P('lullaby-sweet', 'Sweet (I-vi-IV-I)', 'major', 'I vi IV I', ['lullaby', 'peaceful'], 'Tender and nostalgic, resolves at home.'),
+  P('calm-sus', 'Suspended calm (Isus2-IVsus2-Isus2-Vsus4)', 'major', 'Isus2 IVsus2 Isus2 Vsus4', ['ambient', 'mysterious-calm', 'peaceful'], 'No thirds: open fifths and seconds, very still.'),
+  P('calm-hush', 'Hush (i7-bVII-bVI-bVII)', 'minor', 'i7 bVII bVI bVII', ['ambient', 'mysterious-calm'], 'Slow oscillation in the minor; soft, not sad.'),
+  P('calm-curious', 'Curious (i-bIII-IV-i)', 'minor', 'i bIII IV i', ['mysterious-calm', 'ambient'], 'The major IV over minor (dorian) lifts the mood a little.'),
+  P('calm-veil', 'Veil (i-bVII-i-bII)', 'minor', 'i bVII i bII', ['mysterious-calm'], 'Quiet doubt with a soft flat-2 glance.')
 ]
 
 export function findProgression(id: string): Progression | undefined {

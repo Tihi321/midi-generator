@@ -12,6 +12,7 @@
     "postinstall": "install-electron",
     "build:mcp": "vite build --config vite.mcp.config.ts --logLevel warn",
     "dev": "electron-vite dev",
+    "mcp": "electron . --mcp-only",
     "build": "yarn build:mcp && electron-vite build",
     "test": "vitest run",
     "test:electron": "yarn build && playwright test --config playwright.electron.config.ts",

@@ -6,6 +6,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { IPC } from '../shared/ipc'
+import type { AudioFormat, EncodeResult } from '../tools/services'
+import { encodeAudio } from './ffmpeg'
 import type { BridgeIpc } from './toolBridge'
 
 export interface ChiptuneStudioPaths {
@@ -73,6 +75,8 @@ export interface NodeServices {
   readFile(path: string): Promise<Uint8Array>
   resolveExportPath(name: string, dir?: string): Promise<string>
   resolveProjectPath(name: string, dir?: string): Promise<string>
+  /** ogg/mp3 through ffmpeg (FFMPEG_PATH or PATH); wav fallback with a warning. */
+  encodeAudio(wav: Uint8Array, path: string, format: AudioFormat): Promise<EncodeResult>
 }
 
 export function createNodeServices(root: string = defaultRoot()): NodeServices {
@@ -96,6 +100,9 @@ export function createNodeServices(root: string = defaultRoot()): NodeServices {
     async resolveProjectPath(name, dir) {
       await ensureDirs(paths)
       return resolveUnder(paths.projects, name, dir)
+    },
+    async encodeAudio(wav, path, format) {
+      return encodeAudio(wav, resolve(expandHome(path)), format)
     }
   }
 }
@@ -106,5 +113,6 @@ export function registerServices(ipc: BridgeIpc, services: NodeServices = create
   ipc.handle(IPC.fsReadFile, (_e, path) => services.readFile(String(path)))
   ipc.handle(IPC.fsResolveExportPath, (_e, name, dir) => services.resolveExportPath(String(name), typeof dir === 'string' ? dir : undefined))
   ipc.handle(IPC.fsResolveProjectPath, (_e, name, dir) => services.resolveProjectPath(String(name), typeof dir === 'string' ? dir : undefined))
+  ipc.handle(IPC.fsEncodeAudio, (_e, wav, path, format) => services.encodeAudio(wav as Uint8Array, String(path), (format === 'mp3' || format === 'wav' ? format : 'ogg') as AudioFormat))
   return services
 }

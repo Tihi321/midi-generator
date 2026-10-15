@@ -6,8 +6,9 @@ import { engine } from './state/audio'
 import { session } from './state/session'
 import { useUi } from './state/ui'
 import { createDefaultRegistry } from '../tools'
-import { createRendererAudio } from './audioService'
-import { createIpcServices, startToolBridge } from './toolBridgeClient'
+import { IPC, type OpenSongRequest } from '../shared/ipc'
+import { getToolServices, openSongRequest } from './state/actions'
+import { startToolBridge } from './toolBridgeClient'
 import './styles.css'
 
 // Start with an NES song that already has a few preset instruments, so the first note typed makes a sound.
@@ -16,7 +17,12 @@ session.setCurrentInstrument(0)
 
 // The tool bridge drives the same session the UI edits, so LLM/MCP edits and manual edits
 // share one undo history.
-if (window.chiptuneStudio) startToolBridge(createDefaultRegistry(), session, createIpcServices(window.chiptuneStudio, createRendererAudio()))
+if (window.chiptuneStudio) {
+  startToolBridge(createDefaultRegistry(), session, getToolServices())
+  // `--open <file>` on the command line or from a second launch: open the song (and export its audio on save)
+  window.chiptuneStudio.on(IPC.appOpen, (req) => void openSongRequest(req as OpenSongRequest))
+  void window.chiptuneStudio.invoke<OpenSongRequest | null>(IPC.appRendererReady).then((req) => (req ? openSongRequest(req) : undefined))
+}
 window.__chiptuneStudio = { session, ui: useUi, audio: engine }
 
 createRoot(document.getElementById('root')!).render(
