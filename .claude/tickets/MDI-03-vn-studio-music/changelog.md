@@ -2,7 +2,7 @@
 
 ## 2026-10-15: MDI-03, Chiptune Studio as a music generator for VN Studio (part of VNO-02)
 
-Chiptune Studio can now run with no window (`yarn mcp`) and compose and render a calm, seamlessly looping track in two tool calls. Not committed or pushed.
+Chiptune Studio can now run with no window (`yarn mcp`) and compose and render a calm, seamlessly looping track in two tool calls. Committed on `MDI-03_vn-studio-music` (02c867b); not pushed. Remaining work: visual-novels-orchestrator `.claude/tickets/VNO-02-chiptune-and-pixel-studio/next-steps.md`.
 
 **Repo:** midi-generator. **Branch:** `MDI-03_vn-studio-music`, from `origin/master` @ 425bd0b.
 
