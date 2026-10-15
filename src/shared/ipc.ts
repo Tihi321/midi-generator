@@ -26,8 +26,25 @@ export const IPC = {
   fsWriteFile: 'fs:writeFile',
   fsReadFile: 'fs:readFile',
   fsResolveExportPath: 'fs:resolveExportPath',
-  fsResolveProjectPath: 'fs:resolveProjectPath'
+  fsResolveProjectPath: 'fs:resolveProjectPath',
+  /** (wav: Uint8Array, path: string, format: 'ogg' | 'mp3' | 'wav') => EncodeResult (ffmpeg in main) */
+  fsEncodeAudio: 'fs:encodeAudio',
+  // Opening a song from the command line / a second launch / a tool (see OpenSongRequest)
+  /** main -> renderer push: OpenSongRequest */
+  appOpen: 'app:open',
+  /** renderer -> main: the renderer listens for `app:open`; returns the OpenSongRequest queued at startup, or null */
+  appRendererReady: 'app:rendererReady',
+  /** renderer -> main: bring the window to the front */
+  appFocus: 'app:focus'
 } as const
+
+/** Open a .ctune song in the window; with `exportTo`, saving also exports the looping audio there. */
+export interface OpenSongRequest {
+  /** Absolute path of the .ctune file. */
+  path: string
+  exportTo?: string
+  exportFormat?: 'ogg' | 'wav' | 'mp3'
+}
 
 /** main -> renderer: run a tool on the live document. */
 export interface ToolExecuteRequest {

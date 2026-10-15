@@ -57,11 +57,11 @@ describe('roles', () => {
 })
 
 describe('preset banks', () => {
-  it('have 15-30 presets for NES and GB and are empty placeholders for the rest', () => {
+  it('have 15-40 presets for NES and GB and are empty placeholders for the rest', () => {
     expect(NES_PRESETS.length).toBeGreaterThanOrEqual(15)
-    expect(NES_PRESETS.length).toBeLessThanOrEqual(30)
+    expect(NES_PRESETS.length).toBeLessThanOrEqual(40)
     expect(GB_PRESETS.length).toBeGreaterThanOrEqual(15)
-    expect(GB_PRESETS.length).toBeLessThanOrEqual(30)
+    expect(GB_PRESETS.length).toBeLessThanOrEqual(40)
     expect(PRESET_BANKS.genesis.length).toBeGreaterThanOrEqual(20)
     expect(PRESET_BANKS.snes.length).toBeGreaterThanOrEqual(20)
   })

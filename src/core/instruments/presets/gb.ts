@@ -72,6 +72,15 @@ export const GB_PRESETS: Preset[] = [
   pulse('arp.duty50', 'arp-square', 'arp', 'Arpeggio voice: 50% pulse, softer.', 2, 9, 0),
   pulse('pad.soft', 'pad', 'pad', 'Quiet 12.5% pulse for sustained chord tones.', 0, 7, 0),
   pulse('bell.chime', 'bell', 'bell', 'Bell: 50% pulse with a slow decay and octave-up blip.', 2, 15, 4, { arp: createMacro([12, 0], { mode: 'rel', loop: 1 }) }),
+  // soft presets for calm music: slow swell, long release (the vol macro continues after key-off)
+  pulse('pad.soft-square', 'pad-soft-square', 'pad', 'Soft 50% square pad: slow swell, long release. The default pad for calm moods.', 2, 9, 0, {
+    vol: { values: [3, 4, 5, 6, 7, 8, 9, 9, 8, 7, 6, 5, 4, 3, 2, 2, 1, 1, 0], loop: 7, release: 8 }
+  }),
+  pulse('lead.soft-square', 'lead-soft-square', 'lead', 'Soft 50% square lead: gentle swell, long release.', 2, 10, 0, {
+    vol: { values: [6, 8, 9, 10, 10, 9, 8, 7, 6, 5, 4, 3, 2, 2, 1, 1, 0], loop: 3, release: 4 }
+  }),
+  pulse('bell.soft', 'bell-soft', 'bell', 'Soft 25% pulse bell: quiet attack that fades slowly.', 1, 9, 4),
+  wave('bass.wave-soft', 'bass-soft', 'bass', 'Sine-like wave bass: round and quiet.', GB_WAVES.sine, 1),
   wave('bass.wave-saw', 'bass', 'bass', 'Saw-wave bass at full level (default for WV): buzzy and strong.', GB_WAVES.saw, 1),
   wave('bass.wave-square', 'bass-square', 'bass', 'Square-ish wave bass: hollow, classic.', GB_WAVES.square, 1),
   wave('bass.wave-tri', 'bass-tri', 'bass', 'Triangle-wave bass: soft and round.', GB_WAVES.triangle, 1),

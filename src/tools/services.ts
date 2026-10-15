@@ -62,6 +62,22 @@ export interface AssetService {
   thumbnail(id: string): Promise<Uint8Array | null>
 }
 
+export type AudioFormat = 'ogg' | 'mp3' | 'wav'
+
+export interface EncodeResult {
+  /** The file actually written (the requested path, or the same path with ".wav" when no encoder was available). */
+  path: string
+  format: AudioFormat
+  warning?: string
+}
+
+/** What the app shell does when tools open or save songs. Absent in headless mode and tests. */
+export interface StudioHost {
+  /** A song was opened (open_song) or saved (save_song) from a tool: the window brings itself to front and shows the file. */
+  songOpened(info: { path: string | null; name: string }): void | Promise<void>
+  songSaved(path: string): void | Promise<void>
+}
+
 export interface ToolServices {
   /** Write a file (creating parent folders). Text is UTF-8. Rejects when the path is not allowed. */
   writeFile(path: string, data: Uint8Array | string): Promise<void>
@@ -78,6 +94,12 @@ export interface ToolServices {
   audio: AudioService
   /** The asset library (songs, motifs, instruments). Absent where there is no library. */
   assets?: AssetService
+  /**
+   * Encode WAV bytes to ogg/mp3 at `path` (ffmpeg from FFMPEG_PATH or PATH). With no ffmpeg it writes the WAV next to
+   * the path and says so in `warning`. Absent where nothing can encode: render_audio then writes a WAV and warns.
+   */
+  encodeAudio?(wav: Uint8Array, path: string, format: AudioFormat): Promise<EncodeResult>
+  studio?: StudioHost
 }
 
 export interface AudioRenderOptions {

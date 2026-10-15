@@ -54,6 +54,13 @@ export const SNES_PRESETS: Preset[] = [
   snes('bass.pick', 'bass-pick', 'bass', 'Picked bass: plucked attack, decays into a mellow sustain.', { id: 'bass-pick', label: 'Bass (pick)', recipe: 'bass', params: { style: 'pick' } }, 36, adsr(15, 5, 3, 21), false),
   snes('lead.saw', 'lead', 'lead', 'Sawtooth lead (single-cycle loop); bright and cutting, light echo.', { id: 'lead-saw', label: 'Lead (saw)', recipe: 'lead' }, 72, adsr(14, 7, 7, 0), true),
   snes('lead.square', 'lead-square', 'lead', 'Square lead (single-cycle loop); hollow, chiptune-flavoured.', { id: 'lead-square', label: 'Lead (square)', recipe: 'lead', params: { wave: 'square' } }, 72, adsr(14, 7, 7, 0), true),
+  // ---- soft presets for calm music (ambient, lullaby, peaceful, mysterious-calm): slow attacks, held sustain, echo on
+  snes('pad.soft-strings', 'pad-soft', 'pad', 'Soft strings pad: very slow bow attack, held, wide echo. The default pad for calm moods.', { id: 'strings', label: 'Strings', recipe: 'strings' }, 60, adsr(5, 4, 7, 0), true),
+  snes('strings.swell', 'strings-swell', 'strings', 'Slow string swell for second chord tones; blends into the echo.', { id: 'strings', label: 'Strings', recipe: 'strings' }, 60, adsr(4, 4, 7, 0), true),
+  snes('pad.dream', 'pad-dream', 'pad', 'Dreamy glassy pad: slowest attack, hollow and airy.', { id: 'pad-glass', label: 'Pad (glass)', recipe: 'pad', params: { wave: 'tri' } }, 60, adsr(3, 4, 7, 0), true),
+  snes('bell.soft', 'bell-soft', 'bell', 'Soft music-box bell that rings out and fades by itself.', { id: 'bell', label: 'Bell', recipe: 'bell' }, 72, adsr(15, 6, 4, 19), true),
+  snes('flute.soft', 'flute-soft', 'flute', 'Gentle breathy flute with a slower attack than "flute".', { id: 'flute', label: 'Flute', recipe: 'flute' }, 72, adsr(8, 5, 6, 0), true),
+  snes('bass.soft', 'bass-soft', 'bass', 'Soft low bass: slower attack, sustained, no echo.', { id: 'bass', label: 'Bass', recipe: 'bass' }, 36, adsr(11, 5, 7, 0), false),
   snes('kick.drum', 'kick', 'kick', 'Kick drum: sine sweep with a click. Write at C-4.', { id: 'kick', label: 'Kick', recipe: 'kick' }, 60, adsr(15, 7, 7, 0), false),
   snes('snare.drum', 'snare', 'snare', 'Snare: 180 Hz tone plus noise. Echo makes it big.', { id: 'snare', label: 'Snare', recipe: 'snare' }, 60, adsr(15, 7, 7, 0), true),
   snes('hat.closed', 'hat', 'hihat', 'Closed hi-hat.', { id: 'hat', label: 'Hi-hat', recipe: 'hat' }, 60, adsr(15, 7, 7, 0), false),

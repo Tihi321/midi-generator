@@ -157,10 +157,10 @@ describe('drums', () => {
 })
 
 describe('moods', () => {
-  it('has the 16 required moods with complete recipes for every chip', () => {
+  it('has the 16 required moods plus the 4 calm ones with complete recipes for every chip', () => {
     expect(MOOD_IDS).toEqual([
       'heroic', 'battle', 'boss', 'spooky', 'dungeon', 'chill', 'town', 'overworld', 'victory', 'game-over', 'title', 'shop',
-      'underwater', 'desert', 'castle', 'sad'
+      'underwater', 'desert', 'castle', 'sad', 'ambient', 'lullaby', 'peaceful', 'mysterious-calm'
     ])
     for (const m of MOODS) {
       expect(m.bpm[0]).toBeLessThan(m.bpm[1])

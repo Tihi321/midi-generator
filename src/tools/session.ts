@@ -48,6 +48,18 @@ export interface ReplaceSongOptions {
 
 export type SessionListener = () => void
 
+/** Where the looping audio of the open song is exported on every save (round trip with another app). */
+export interface ExportTarget {
+  path: string
+  format: 'ogg' | 'wav' | 'mp3'
+}
+
+/** A song the session keeps besides the live one (see songStore.ts): its project text and, if known, its file. */
+export interface HeldSong {
+  project: string
+  path: string | null
+}
+
 interface TurnState {
   label: string
   /** Undo depth when the turn started: undo never goes below it while the turn runs. */
@@ -70,6 +82,13 @@ export class SongSession implements ToolSession {
   octave = 4
   /** Instrument index used for manual note entry (-1 = none). */
   currentInstrument = 0
+
+  /** Songs of this session other than the live one, by song id (compose_track / open_song park the old one here). */
+  readonly held = new Map<string, HeldSong>()
+  /** File each song was saved to or opened from, by song id. */
+  readonly songPaths = new Map<string, string>()
+  /** Export the looping audio here whenever the live song is saved; null = no round trip. */
+  exportTarget: ExportTarget | null = null
 
   private _version = 0
   private listeners = new Set<SessionListener>()
