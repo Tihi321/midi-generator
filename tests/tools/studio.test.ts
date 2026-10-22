@@ -142,6 +142,70 @@ describe('composer intro', () => {
   })
 })
 
+describe('composer motif', () => {
+  const base = { mood: 'ambient', chip: 'snes', seed: 42, bars: 16, key: 'D', scale: 'major' }
+  const motif = 'E5:4 G5:2 A5:2 B5:8'
+  const pcsAt = (rows: ReturnType<typeof channelRows>, at: number[]) => at.map((r) => (rows[r]?.note as number) % 12)
+
+  it('plays the transposed motif at bar 0 of the lead and again every second phrase', () => {
+    const r = composeSong({ ...base, motif, motifKey: 'C' })
+    expect(r.motif).toEqual({ bars: 1, transposeSemis: 2, placedAtBars: [0, 8] })
+    const lead = channelRows(r.song, 'V4')
+    expect(pcsAt(lead, [0, 4, 6, 8])).toEqual([6, 9, 11, 1]) // F# A B C# in D major
+    expect(pcsAt(lead, [8 * 16, 8 * 16 + 4])).toEqual([6, 9]) // the repeat keeps the head of the motif
+    // the other bars are still generated
+    expect(lead.slice(16, 4 * 16).some((c) => c !== null)).toBe(true)
+    expect(validateSong(r.song).filter((i) => i.severity === 'error')).toEqual([])
+  })
+
+  it('keeps the harmony of the same track without the motif', () => {
+    const a = composeSong(base)
+    const r = composeSong({ ...base, motif })
+    expect([r.bpm, r.key, r.scale, r.chords, r.progression]).toEqual([a.bpm, a.key, a.scale, a.chords, a.progression])
+    for (const ch of ['V1', 'V2', 'V3']) expect(channelRows(r.song, ch)).toEqual(channelRows(a.song, ch))
+    expect(a.motif).toBeNull()
+  })
+
+  it('is deterministic for a seed and motif, also with the motif repeating (development)', () => {
+    const o = { ...base, bars: 32, motif: 'E5:4 G5:4 A5:4 B5:2 A5:2 G5:16 E5:8' }
+    const a = composeSong(o)
+    const b = composeSong(o)
+    b.song.id = a.song.id
+    expect(serializeProject(b.song)).toBe(serializeProject(a.song))
+    expect(a.motif!.placedAtBars).toEqual([0, 8, 16, 24])
+    const lead = channelRows(a.song, 'V4')
+    // the first repeat only changes the last notes: the head is the same as the statement
+    expect(lead.slice(8 * 16, 8 * 16 + 12)).toEqual(lead.slice(0, 12))
+  })
+
+  it('moves out-of-scale notes into the scale (a major motif on a minor track)', () => {
+    const r = composeSong({ mood: 'ambient', chip: 'snes', seed: 1, bars: 8, key: 'C', scale: 'minor', motif: 'C5:4 E5:4 G5:4 B5:4', motifKey: 'C' })
+    const lead = channelRows(r.song, 'V4')
+    const pcs = pcsAt(lead, [0, 4, 8, 12])
+    for (const pc of pcs) expect([0, 2, 3, 5, 7, 8, 10]).toContain(pc)
+    expect(pcs[0]).toBe(0) // in-scale notes stay as written
+    expect(pcs[2]).toBe(7)
+  })
+
+  it('rejects a motif longer than 4 bars, instrument/volume/chord tokens and bad notes (with the column)', () => {
+    expect(() => composeSong({ ...base, motif: 'C5:16 D5:16 E5:16 F5:16 G5:16' })).toThrow(/at most 4 bars/)
+    expect(() => composeSong({ ...base, motif: 'C5:4 @lead D5:4' })).toThrow(/col 6, "@lead"/)
+    expect(() => composeSong({ ...base, motif: 'v8 C5:4' })).toThrow(/col 1/)
+    expect(() => composeSong({ ...base, motif: '{C5 E5 G5}:8' })).toThrow(/chord/)
+    expect(() => composeSong({ ...base, motif: 'C5:4 Z9:4' })).toThrow(/motif: [\s\S]*col 6/)
+    expect(() => composeSong({ ...base, motif: 'r:4' })).toThrow(/no notes/)
+    expect(() => composeSong({ ...base, motif, motifKey: 'H' })).toThrow(/Invalid motifKey/)
+  })
+
+  it('a 4-bar motif with a tie and rests works on every chip', () => {
+    for (const chip of CHIPS) {
+      const r = composeSong({ mood: 'heroic', chip, seed: 6, bars: 16, motif: 'E5:4 r:2 G5:2 ~:8 A5:16 B5:16 C6:16' })
+      expect(validateSong(r.song).filter((i) => i.severity === 'error'), chip).toEqual([])
+      expect(r.motif?.bars, chip).toBe(4)
+    }
+  })
+})
+
 describe('compose_track tool', () => {
   it('opens the new song, returns the JSON object last and keeps the replaced song', async () => {
     const t = songSetup()
@@ -199,6 +263,21 @@ describe('compose_track intro through the tools', () => {
     const text = resultText(await t.ok('compose_track', { mood: 'ambient', chip: 'snes', seed: 1, bars: 4, intro: 2 }))
     expect(text).toMatch(/2-bar intro plays once/)
     expect((await t.call('compose_track', { mood: 'ambient', intro: 5 })).isError).toBe(true)
+  })
+})
+
+describe('compose_track motif through the tools', () => {
+  it('returns the motif placement and mentions it; bad motifs are error results', async () => {
+    const t = songSetup()
+    const r = await t.ok('compose_track', { mood: 'ambient', chip: 'snes', seed: 1, bars: 16, motif: 'E5:4 G5:4 A5:8', motifKey: 'C' })
+    const j = lastJson(r)
+    expect(j['motif']).toMatchObject({ bars: 1, placedAtBars: [0, 8] })
+    expect(resultText(r)).toMatch(/Motif \(1 bar, transposed .* semitones\) plays at loop bars 0, 8/)
+    const none = await t.ok('compose_track', { mood: 'ambient', chip: 'snes', seed: 1, bars: 4 })
+    expect(lastJson(none)['motif']).toBeNull()
+    expect(resultText(none)).not.toMatch(/Motif/)
+    const bad = await t.call('compose_track', { mood: 'ambient', motif: '@lead C5' })
+    expect(bad.isError).toBe(true)
   })
 })
 
