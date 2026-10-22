@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { MOOD_IDS, readWav, renderSong, serializeProject, songSeconds, validateSong } from '../../src/core'
 import { composeSong } from '../../src/tools'
-import { resultText, songSetup } from './helpers'
+import { channelRows, resultText, songSetup } from './helpers'
 
 const CHIPS = ['nes', 'gb', 'genesis', 'snes', 'pce'] as const
 const CALM = ['ambient', 'lullaby', 'peaceful', 'mysterious-calm']
@@ -86,6 +86,62 @@ describe('composer', () => {
   })
 })
 
+describe('composer intro', () => {
+  const base = { mood: 'ambient', chip: 'snes', seed: 42, bars: 8 }
+  it('intro 0 is the same song as no intro', () => {
+    const a = composeSong(base)
+    const b = composeSong({ ...base, intro: 0 })
+    b.song.id = a.song.id
+    expect(serializeProject(b.song)).toBe(serializeProject(a.song))
+    expect(b.introBars).toBe(0)
+  })
+
+  it('puts the intro before the loop: quiet pads and bass, no lead, no drums', () => {
+    const a = composeSong({ mood: 'mysterious-calm', chip: 'snes', seed: 42, bars: 8 })
+    const r = composeSong({ mood: 'mysterious-calm', chip: 'snes', seed: 42, bars: 8, intro: 2 })
+    expect(r.introBars).toBe(2)
+    expect(r.loop).toEqual({ startBar: 2, endBar: 10 })
+    expect(r.song.loop).toEqual({ order: 1 }) // pattern bars 2
+    expect(r.song.orders).toHaveLength(5)
+    expect(r.durationSec).toBeCloseTo(songSeconds(a.song) * (10 / 8), 2)
+    expect([r.bpm, r.key, r.scale, r.chords]).toEqual([a.bpm, a.key, a.scale, a.chords])
+    const rowsOf = (id: string) => channelRows(r.song, id)
+    const lead = rowsOf('V4')
+    expect(lead.slice(0, 32).every((c) => c === null)).toBe(true)
+    expect(lead.slice(32).some((c) => c !== null)).toBe(true)
+    // the body is the same music as without an intro (lead notes shifted by two bars)
+    expect(lead.slice(32)).toEqual(channelRows(a.song, 'V4'))
+    for (const ch of r.channels) {
+      const intro = rowsOf(ch).slice(0, 32)
+      const drums = r.parts.some((p) => p.startsWith(`${ch} drums`))
+      if (drums) expect(intro.every((c) => c === null), `${ch} intro is silent`).toBe(true)
+    }
+    const bass = rowsOf('V1').slice(0, 32).filter((c) => c !== null)
+    expect(bass.length).toBeGreaterThan(0)
+    expect(validateSong(r.song).filter((i) => i.severity === 'error')).toEqual([])
+  })
+
+  it('picks pattern bars that divide both the intro and the body', () => {
+    const r = composeSong({ ...base, bars: 8, intro: 3 })
+    expect(r.song.patternLength).toBe(16)
+    expect(r.song.orders).toHaveLength(11)
+    expect(r.song.loop).toEqual({ order: 3 })
+    expect(r.loop).toEqual({ startBar: 3, endBar: 11 })
+  })
+
+  it('works on every chip and with loop false', () => {
+    for (const chip of CHIPS) {
+      for (const mood of ['peaceful', 'heroic']) {
+        const r = composeSong({ mood, chip, seed: 3, bars: 4, intro: 4 })
+        expect(validateSong(r.song).filter((i) => i.severity === 'error'), `${mood}/${chip}`).toEqual([])
+      }
+    }
+    const once = composeSong({ ...base, intro: 2, loop: false })
+    expect(once.loop).toBeNull()
+    expect(once.song.orders).toHaveLength(5)
+  })
+})
+
 describe('compose_track tool', () => {
   it('opens the new song, returns the JSON object last and keeps the replaced song', async () => {
     const t = songSetup()
@@ -127,6 +183,22 @@ describe('compose_track tool', () => {
     const r = await t.call('compose_track', { mood: 'nope' })
     expect(r.isError).toBe(true)
     expect(resultText(r)).toMatch(/Unknown mood/)
+  })
+})
+
+describe('compose_track intro through the tools', () => {
+  it('reports introBars and the loop after the intro; render_audio starts the loop at the intro end', async () => {
+    const t = songSetup()
+    const c = lastJson(await t.ok('compose_track', { mood: 'ambient', chip: 'snes', seed: 1, bars: 4, intro: 2 }))
+    expect(c).toMatchObject({ bars: 4, introBars: 2, loop: { startBar: 2, endBar: 6 } })
+    expect(c['durationSec'] as number).toBeCloseTo(songSeconds(t.session.song), 2)
+    const j = lastJson(await t.ok('render_audio', { path: '/mem/out/intro.wav', format: 'wav' }))
+    const introSec = (2 * 4 * 60) / t.session.song.timing.bpm
+    expect(j['loopStartSec'] as number).toBeCloseTo(introSec, 2)
+    expect(j['loopEndSec'] as number).toBeCloseTo(c['durationSec'] as number, 2)
+    const text = resultText(await t.ok('compose_track', { mood: 'ambient', chip: 'snes', seed: 1, bars: 4, intro: 2 }))
+    expect(text).toMatch(/2-bar intro plays once/)
+    expect((await t.call('compose_track', { mood: 'ambient', intro: 5 })).isError).toBe(true)
   })
 })
 

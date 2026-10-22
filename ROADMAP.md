@@ -8,7 +8,7 @@ What Chiptune Studio still lacks, found while VN Studio and the creative hub (`C
 
 ## Composing
 
-- `compose_track` has no motif/leitmotif input, no variation mode and no intro.
+- `compose_track` has no motif/leitmotif input and no variation mode.
 
 ## Sound for visual novels
 

@@ -22,7 +22,7 @@ export const studioTools = [
     name: 'compose_track',
     group: 'song',
     description:
-      'Compose a whole track in one call and open it as the current song (the song that was open is kept: list_songs, open_song). A procedural composer (chord progression, bass, pads, melody, optional drums) built on the mood recipes, so you get a finished loop to render with render_audio, or to refine with write_pattern / write_melody. Deterministic: the same seed and arguments give the same song. Calm moods ("ambient", "lullaby", "peaceful", "mysterious-calm") use soft presets, slow tempo and no or very sparse drums. With loop true (default) the loop covers the whole song and ends exactly at the song end. Returns songId, chip, bpm, key, scale, bars, seed, durationSec and loop as JSON. Example: {"mood":"ambient","chip":"snes","seed":1}.',
+      'Compose a whole track in one call and open it as the current song (the song that was open is kept: list_songs, open_song). A procedural composer (chord progression, bass, pads, melody, optional drums) built on the mood recipes, so you get a finished loop to render with render_audio, or to refine with write_pattern / write_melody. Deterministic: the same seed and arguments give the same song. Calm moods ("ambient", "lullaby", "peaceful", "mysterious-calm") use soft presets, slow tempo and no or very sparse drums. With loop true (default) the loop covers the whole song and ends exactly at the song end. With intro 1..4 a quiet intro (pads and bass on the tonic, no lead, no drums) plays once before the loop: bars / seconds are the loop body, the loop starts after the intro, and render_audio reports that as loopStartSec. Returns songId, chip, bpm, key, scale, bars, introBars, seed, durationSec and loop as JSON. Example: {"mood":"ambient","chip":"snes","seed":1}.',
     input: obj({
       mood: z.string().min(1).describe('Mood id or alias (get_mood_recipe lists them): ambient, lullaby, peaceful, mysterious-calm, chill, heroic, ...'),
       chip: z.string().optional().describe('Chip: nes, gb, genesis, snes, pce. Default depends on the mood (SNES for calm moods, NES otherwise).'),
@@ -31,6 +31,7 @@ export const studioTools = [
       scale: z.string().min(1).optional().describe('Scale id (list_chips / get_mood_recipe), e.g. "major", "dorian", "lydian". Default: a seeded pick from the mood recipe.'),
       bars: z.number().int().min(1).max(128).optional().describe('Length in bars (default 16). 4/4: a bar is 4 beats.'),
       seconds: z.number().min(2).max(900).optional().describe('Approximate length in seconds; overrides bars and is rounded to whole bars.'),
+      intro: z.number().int().min(0).max(4).optional().describe('Intro bars (0..4, default 0) played once before the loop: quiet pads and bass, no lead, no drums. Not part of bars / seconds.'),
       loop: z.boolean().optional().describe('Loop the whole song (default true). false = a one-shot piece.'),
       seed: z.number().int().min(0).max(4294967295).optional().describe('Random seed (default: random; the used seed is returned). Same seed + same arguments = same song.'),
       instruments: z.record(z.string(), z.string()).optional().describe('Channel id -> preset id or role, e.g. {"V4":"snes.flute.soft"}. Default: soft presets for calm moods, role presets otherwise.'),
@@ -42,10 +43,12 @@ export const studioTools = [
       const r = composeSong({ ...args, seed })
       activateSong(session, r.song, null, `Compose ${r.mood}`)
       const text = [
-        `Composed "${r.song.name}": ${r.chip.toUpperCase()}, ${r.bpm} BPM, ${r.key} ${r.scale}, mood ${r.mood}, ${r.bars} bars = ${r.durationSec.toFixed(1)} s, seed ${seed}.`,
+        `Composed "${r.song.name}": ${r.chip.toUpperCase()}, ${r.bpm} BPM, ${r.key} ${r.scale}, mood ${r.mood}, ${r.bars} bars${r.introBars ? ` + ${r.introBars} intro` : ''} = ${r.durationSec.toFixed(1)} s, seed ${seed}.`,
         `Chords (progression ${r.progression}, ${r.chords.length} chord slots): ${r.chords.join(' ')}.`,
         `Parts: ${r.parts.join('; ')}.`,
-        r.loop ? `Loops over the whole song (bars ${r.loop.startBar}..${r.loop.endBar}); the loop ends exactly at the song end.` : 'No loop: the song plays once.',
+        r.loop
+          ? `Loops over bars ${r.loop.startBar}..${r.loop.endBar}; the loop ends exactly at the song end.${r.introBars ? ` The ${r.introBars}-bar intro plays once: render_audio's loopStartSec is the intro end.` : ''}`
+          : 'No loop: the song plays once.',
         'Next: render_audio {"path":"<absolute path>.ogg"} to get the file, or refine with write_pattern / write_melody / write_drums.'
       ].join('\n')
       return okJson(text, {
@@ -57,6 +60,7 @@ export const studioTools = [
         scale: r.scale,
         mood: r.mood,
         bars: r.bars,
+        introBars: r.introBars,
         seed,
         durationSec: r.durationSec,
         loop: r.loop,

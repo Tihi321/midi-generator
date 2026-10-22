@@ -9,8 +9,9 @@
 //   lead   4-bar phrases from rhythm templates; strong beats land on chord tones, the rest moves by scale steps
 //   arp    (lively moods) eighth-note chord tones on a free arpeggio voice
 //   drums  from the mood's drum style (none for most calm moods)
-// With loop on, the loop covers the whole song (loop end == song end) and the last chord is the progression's
-// turnaround, so the end leads back to the start.
+// With loop on, the loop covers the whole song body (loop end == song end) and the last chord is the progression's
+// turnaround, so the end leads back to the start. An optional intro (0..4 bars) plays once before the loop: quiet
+// bass and pad on the tonic, no lead, no drums.
 
 import {
   type Cell,
@@ -55,6 +56,8 @@ export interface ComposeOptions {
   /** Loop the whole song (default true). */
   loop?: boolean
   seed: number
+  /** Intro bars (0..4, default 0) played once before the loop: quiet pads and bass on the tonic, no lead, no drums. */
+  intro?: number
   /** Channel id -> preset id or role. */
   instruments?: Record<string, string>
   name?: string
@@ -64,6 +67,8 @@ export interface ComposeResult {
   song: Song
   seed: number
   bars: number
+  /** Intro bars before the loop body (0 when none); `bars` is the loop body. */
+  introBars: number
   chip: ChipId
   bpm: number
   key: string
@@ -338,8 +343,10 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   let bars = Math.round(opts.bars ?? 16)
   if (opts.seconds !== undefined) bars = Math.round(opts.seconds / ((60 / bpm) * 4))
   bars = Math.max(1, Math.min(128, bars))
-  const patternBars = [4, 2, 1].find((n) => bars % n === 0)!
-  const totalRows = bars * ROWS_PER_BAR
+  const introBars = Math.max(0, Math.min(4, Math.round(opts.intro ?? 0)))
+  const patternBars = [4, 2, 1].find((n) => bars % n === 0 && introBars % n === 0)!
+  const totalRows = bars * ROWS_PER_BAR // the body; the intro rows sit in front of it
+  const off = introBars * ROWS_PER_BAR
 
   const song = createSong({
     chip,
@@ -390,10 +397,11 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   }
 
   const parts: string[] = []
-  const linear: (Cell | null)[][] = song.channels.map(() => new Array<Cell | null>(totalRows).fill(null))
+  const linear: (Cell | null)[][] = song.channels.map(() => new Array<Cell | null>(off + totalRows).fill(null))
+  /** Rows count from the start of the body (the loop), after the intro. */
   const put = (chIdx: number, row: number, cell: Cell): void => {
     if (row < 0 || row >= totalRows) return
-    linear[chIdx]![row] = cell
+    linear[chIdx]![off + row] = cell
   }
   const noteCell = (chIdx: number, midi: number, inst: number, vol: number, fx?: Cell['fx']): Cell => {
     const def = defOf(chIdx)
@@ -410,6 +418,12 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     const idx = slot === slots - 1 && slots > 1 ? prog.numerals.length - 1 : slot % prog.numerals.length
     return romanToChord(prog.numerals[idx]!, keyPc, 3)
   }
+  // intro: the tonic held, the last bar (with 2+ bars) on the progression's last chord, which leads into the first one
+  const introChord = (bar: number): ReturnType<typeof romanToChord> =>
+    romanToChord(prog.numerals[bar === introBars - 1 && introBars >= 2 ? prog.numerals.length - 1 : 0]!, keyPc, 3)
+  const putIntro = (chIdx: number, bar: number, cell: Cell): void => {
+    linear[chIdx]![bar * ROWS_PER_BAR] = cell
+  }
   const chordNames: string[] = []
   for (let s = 0; s < slots; s++) {
     const c = chordAt(s * style.chordBars)
@@ -421,6 +435,9 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     const ch = plan.bass
     const inst = instFor(ch, () => soft('bass', ch, 'bass'))
     parts.push(`${song.channels[ch]!.id} bass: ${song.instruments[inst]!.name}`)
+    for (let bar = 0; bar < introBars; bar++) {
+      if (bar === 0 || bar === introBars - 1) putIntro(ch, bar, noteCell(ch, 36 + introChord(bar).root, inst, 8))
+    }
     for (let bar = 0; bar < bars; bar++) {
       const chord = chordAt(bar)
       const root = 36 + chord.root
@@ -440,15 +457,27 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     padInsts.push(inst)
     parts.push(`${song.channels[ch]!.id} pad: ${song.instruments[inst]!.name}`)
   })
+  // two chord voices: the first the third (or so), the second the top tone, one beat late
+  const padPitch = (k: number, chord: ReturnType<typeof romanToChord>): number => {
+    const iv = chord.intervals
+    const semis = k === 0 ? iv[1]! : iv.length >= 4 ? iv[iv.length - 1]! : iv[2] ?? iv[1]!
+    return nearPitch((chord.root + semis) % 12, k === 0 ? 62 : 68)
+  }
+  for (let bar = 0; bar < introBars; bar++) {
+    if (bar !== 0 && bar !== introBars - 1) continue
+    const chord = introChord(bar)
+    plan.pads.forEach((ch, k) => {
+      const pitch = plan.pads.length >= 2 ? padPitch(k, chord) : nearPitch(chord.root, 60)
+      putIntro(ch, bar, noteCell(ch, pitch, padInsts[k]!, 5))
+    })
+  }
   if (plan.pads.length >= 2) {
     plan.pads.forEach((ch, k) => {
       const inst = padInsts[k]!
       for (let bar = 0; bar < bars; bar += style.chordBars) {
         const chord = chordAt(bar)
-        const iv = chord.intervals
-        const semis = k === 0 ? iv[1]! : iv.length >= 4 ? iv[iv.length - 1]! : iv[2] ?? iv[1]!
         // the second pad enters one beat late: the two attacks do not dip together
-        put(ch, bar * ROWS_PER_BAR + (k === 0 ? 0 : 4), noteCell(ch, nearPitch((chord.root + semis) % 12, k === 0 ? 62 : 68), inst, 8))
+        put(ch, bar * ROWS_PER_BAR + (k === 0 ? 0 : 4), noteCell(ch, padPitch(k, chord), inst, 8))
       }
     })
   } else if (plan.pads.length === 1) {
@@ -559,7 +588,7 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
         if (rhythm.length === 0 && bar > 0) {
           // a silent bar: release whatever still rings from the bar before
           const prevRow = bar * ROWS_PER_BAR
-          if (linear[ch]![prevRow] === null) put(ch, prevRow, { note: 'rel' })
+          if (linear[ch]![off + prevRow] === null) put(ch, prevRow, { note: 'rel' })
         }
       }
     }
@@ -595,9 +624,9 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   }
 
   // ---- write the patterns
-  song.orders = Array.from({ length: bars / patternBars }, () => song.channels.map(() => 0))
+  song.orders = Array.from({ length: (introBars + bars) / patternBars }, () => song.channels.map(() => 0))
   song.channels.forEach((_, i) => writeChannelPatterns(song, i, linear[i]!))
-  song.loop = opts.loop === false ? null : { order: 0 }
+  song.loop = opts.loop === false ? null : { order: introBars / patternBars }
 
   const problems = validateSong(song).filter((x) => x.severity === 'error')
   if (problems.length > 0) throw new Error(`The composed song breaks ${chip.toUpperCase()} limits: ${problems.map((p) => p.message).slice(0, 3).join(' ')}`)
@@ -607,13 +636,14 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     song,
     seed: opts.seed,
     bars,
+    introBars,
     chip,
     bpm,
     key: keyPc,
     scale: scaleId,
     mood: mood.id,
     durationSec: Math.round(songSeconds(song) * 1000) / 1000,
-    loop: song.loop ? { startBar: 0, endBar: bars } : null,
+    loop: song.loop ? { startBar: introBars, endBar: introBars + bars } : null,
     channels: used,
     parts,
     chords: chordNames,
