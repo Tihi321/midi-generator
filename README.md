@@ -38,9 +38,10 @@ In the app window the MCP server listens on `http://127.0.0.1:7458/mcp` (Setting
 yarn build
 yarn mcp                         # = electron . --mcp-only      (packaged: "Chiptune Studio.exe" --mcp-only)
 yarn mcp --port 7500
+CHIPTUNE_STUDIO_MCP_PORT=7500 yarn mcp   # same, from the environment (--port wins)
 ```
 
-- It starts the same MCP Streamable HTTP server with no window and logs `MCP listening on http://127.0.0.1:<port>/mcp` to stdout. Default port 7458.
+- It starts the same MCP Streamable HTTP server with no window and logs `MCP listening on http://127.0.0.1:<port>/mcp` to stdout. Default port 7458; `--port` wins over the `CHIPTUNE_STUDIO_MCP_PORT` environment variable (headless only: the window keeps its Settings > MCP port).
 - Every tool runs in the Electron main process (plain Node) on a headless song: the song model, the tool registry and the synth are pure TypeScript, so audio renders offline in-process. There is no hidden window and no renderer. `play` / `stop` are not available; `render_audio` gives you a file instead.
 - It does not take the single-instance lock, so it can run next to the app window. If the window is started while the headless server holds port 7458, the window still opens and Settings > MCP shows `Port 7458 is already in use`. Use `--port` for one of them.
 - `CHIPTUNE_STUDIO_HOME` moves the data folder (default `~/ChiptuneStudio`). `CHIPTUNE_STUDIO_MCP_TOKEN` sets a bearer token for the headless server.

@@ -13,7 +13,3 @@ What Chiptune Studio still lacks, found while VN Studio and the creative hub (`C
 ## Sound for visual novels
 
 - No SFX, stingers or ambience. VN Studio (VNO-08) now has `sfx_` and `amb_` sounds: ambience uses the music engine, and an SFX needs an imported file unless `sound.sfxEngine` is set, so an SFX tool here would plug in there.
-
-## Running
-
-- The headless port is set only by `--port`; there is no environment variable.
