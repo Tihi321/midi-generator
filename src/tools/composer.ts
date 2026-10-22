@@ -9,8 +9,12 @@
 //   lead   4-bar phrases from rhythm templates; strong beats land on chord tones, the rest moves by scale steps
 //   arp    (lively moods) eighth-note chord tones on a free arpeggio voice
 //   drums  from the mood's drum style (none for most calm moods)
-// With loop on, the loop covers the whole song (loop end == song end) and the last chord is the progression's
-// turnaround, so the end leads back to the start.
+// With loop on, the loop covers the whole song body (loop end == song end) and the last chord is the progression's
+// turnaround, so the end leads back to the start. An optional intro (0..4 bars) plays once before the loop: quiet
+// bass and pad on the tonic, no lead, no drums. An optional motif (the write_melody text format) is the lead line of
+// every even 4-bar phrase, fitted to the key, range and scale, lightly developed in the later repeats. A variation
+// number k > 0 keeps the harmony and re-rolls the arrangement (lead rhythm and steps, bass pattern, pad voicing and
+// entry, drum fills) with an RNG seeded from (seed, k); k = 0 is the original track.
 
 import {
   type Cell,
@@ -27,8 +31,11 @@ import {
   createSong,
   defaultDrumNote,
   findDrumStyle,
+  MelodyTextError,
   listPresets,
   normalizePitchClass,
+  parseMelodyText,
+  parseNote,
   requireChipId,
   requireMood,
   requireScale,
@@ -40,7 +47,7 @@ import {
   validateSong
 } from '../core'
 import type { ChannelDef, DrumRole, MoodRecipe, Progression } from '../core'
-import { addSongInstrument, foldIntoRange, presetFor, snapVolume, writeChannelPatterns } from '../core/codecs/songBuild'
+import { addSongInstrument, bestOctaveShift, foldIntoRange, presetFor, snapVolume, writeChannelPatterns } from '../core/codecs/songBuild'
 
 export interface ComposeOptions {
   mood: string
@@ -55,6 +62,14 @@ export interface ComposeOptions {
   /** Loop the whole song (default true). */
   loop?: boolean
   seed: number
+  /** Intro bars (0..4, default 0) played once before the loop: quiet pads and bass on the tonic, no lead, no drums. */
+  intro?: number
+  /** Leitmotif in the write_melody text format (notes, r, ~; at most 4 bars). Lead line of every even 4-bar phrase. */
+  motif?: string
+  /** Arrangement variation 0..99 (default 0 = the original): same key, chords, tempo, instruments and motif, other arrangement. */
+  variation?: number
+  /** Key the motif is written in (default C); it is transposed to the track's key. */
+  motifKey?: string
   /** Channel id -> preset id or role. */
   instruments?: Record<string, string>
   name?: string
@@ -64,6 +79,9 @@ export interface ComposeResult {
   song: Song
   seed: number
   bars: number
+  /** Intro bars before the loop body (0 when none); `bars` is the loop body. */
+  introBars: number
+  variation: number
   chip: ChipId
   bpm: number
   key: string
@@ -78,6 +96,8 @@ export interface ComposeResult {
   /** Chord names in order, one per chord slot. */
   chords: string[]
   progression: string
+  /** The motif as placed (null without a motif or a lead channel): its length, the shift from motifKey and the bars it starts at. */
+  motif: { bars: number; transposeSemis: number; placedAtBars: number[] } | null
 }
 
 // ---------------------------------------------------------------------------------------------- random
@@ -240,6 +260,39 @@ const BASS_PATTERNS: Record<'rock' | 'quarters' | 'eighths', { row: number; semi
 // ---------------------------------------------------------------------------------------------- composing
 
 const ROWS_PER_BAR = 16
+const MOTIF_MAX_ROWS = 4 * ROWS_PER_BAR
+
+interface MotifNote {
+  /** Row from the start of the motif. */
+  row: number
+  len: number
+  midi: number
+}
+
+/** The motif text on the lead channel with write_melody's parser; only notes, rests and ties are allowed. */
+function parseMotif(text: string, song: Song, lead: number): { notes: MotifNote[]; rows: number } {
+  for (const m of text.matchAll(/\S+/g)) {
+    const t = m[0]
+    if (/^(@|[vV]\d)/.test(t) || /[{!]/.test(t)) {
+      throw new Error(`motif: col ${m.index! + 1}, "${t}": instrument, volume, chord and effect tokens are not allowed in a motif; write notes (E5:4), r (rest) and ~ (tie) only.`)
+    }
+  }
+  let parsed: ReturnType<typeof parseMelodyText>
+  try {
+    parsed = parseMelodyText(text, song, lead, { wrap: true, strict: false })
+  } catch (e) {
+    throw e instanceof MelodyTextError ? new Error(`motif: ${e.message}`) : e
+  }
+  if (parsed.totalRows > MOTIF_MAX_ROWS) throw new Error(`motif: ${parsed.totalRows} rows is too long; at most 4 bars = ${MOTIF_MAX_ROWS} rows (16 rows per bar).`)
+  const events = parsed.placements.map((p) => ({ pos: p.orderOffset * song.patternLength + p.row, note: p.cell.note }))
+  const notes: MotifNote[] = []
+  events.forEach((e, i) => {
+    if (typeof e.note !== 'number') return
+    notes.push({ row: e.pos, len: (events[i + 1]?.pos ?? parsed.totalRows) - e.pos, midi: e.note })
+  })
+  if (notes.length === 0) throw new Error('motif: no notes; write note names such as "E5:4 G5:2 A5:2 B5:8".')
+  return { notes, rows: parsed.totalRows }
+}
 
 interface Plan {
   bass?: number
@@ -338,8 +391,11 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   let bars = Math.round(opts.bars ?? 16)
   if (opts.seconds !== undefined) bars = Math.round(opts.seconds / ((60 / bpm) * 4))
   bars = Math.max(1, Math.min(128, bars))
-  const patternBars = [4, 2, 1].find((n) => bars % n === 0)!
-  const totalRows = bars * ROWS_PER_BAR
+  const variation = Math.max(0, Math.min(99, Math.round(opts.variation ?? 0)))
+  const introBars = Math.max(0, Math.min(4, Math.round(opts.intro ?? 0)))
+  const patternBars = [4, 2, 1].find((n) => bars % n === 0 && introBars % n === 0)!
+  const totalRows = bars * ROWS_PER_BAR // the body; the intro rows sit in front of it
+  const off = introBars * ROWS_PER_BAR
 
   const song = createSong({
     chip,
@@ -352,7 +408,7 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     patternLength: patternBars * ROWS_PER_BAR,
     groove: mood.groove
   })
-  song.meta.notes = `Composed by compose_track (seed ${opts.seed}).`
+  song.meta.notes = `Composed by compose_track (seed ${opts.seed}${variation > 0 ? `, variation ${variation}` : ''}).`
   if (chip === 'snes' && style.calm) {
     const cfg = song.chipConfig
     if (cfg.chip === 'snes') cfg.echo = { ...cfg.echo, delay: 6, feedback: 0.5, volL: 0.35, volR: 0.35 }
@@ -363,6 +419,10 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   const drumRoles = drumStyle ? DRUM_ROLES.filter((r) => drumStyle.lanes[r] || (!style.calm && drumStyle.fill?.[r])) : []
   const plan = planChannels(song, style, drumRoles)
   const defs = songChannelDefs(song)
+  const motifPc = normalizePitchClass(opts.motifKey ?? 'C')
+  if (!motifPc) throw new Error(`Invalid motifKey "${opts.motifKey}": use a note name such as C, F#, Bb.`)
+  const motif = opts.motif?.trim() && plan.lead !== undefined ? parseMotif(opts.motif, song, plan.lead) : null
+  let motifInfo: ComposeResult['motif'] = null
   const defOf = (i: number | undefined): ChannelDef | undefined => (i === undefined ? undefined : defs[i])
 
   for (const id of Object.keys(opts.instruments ?? {})) {
@@ -390,10 +450,11 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   }
 
   const parts: string[] = []
-  const linear: (Cell | null)[][] = song.channels.map(() => new Array<Cell | null>(totalRows).fill(null))
+  const linear: (Cell | null)[][] = song.channels.map(() => new Array<Cell | null>(off + totalRows).fill(null))
+  /** Rows count from the start of the body (the loop), after the intro. */
   const put = (chIdx: number, row: number, cell: Cell): void => {
     if (row < 0 || row >= totalRows) return
-    linear[chIdx]![row] = cell
+    linear[chIdx]![off + row] = cell
   }
   const noteCell = (chIdx: number, midi: number, inst: number, vol: number, fx?: Cell['fx']): Cell => {
     const def = defOf(chIdx)
@@ -410,10 +471,37 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     const idx = slot === slots - 1 && slots > 1 ? prog.numerals.length - 1 : slot % prog.numerals.length
     return romanToChord(prog.numerals[idx]!, keyPc, 3)
   }
+  // intro: the tonic held, the last bar (with 2+ bars) on the progression's last chord, which leads into the first one
+  const introChord = (bar: number): ReturnType<typeof romanToChord> =>
+    romanToChord(prog.numerals[bar === introBars - 1 && introBars >= 2 ? prog.numerals.length - 1 : 0]!, keyPc, 3)
+  const putIntro = (chIdx: number, bar: number, cell: Cell): void => {
+    linear[chIdx]![bar * ROWS_PER_BAR] = cell
+  }
   const chordNames: string[] = []
   for (let s = 0; s < slots; s++) {
     const c = chordAt(s * style.chordBars)
     chordNames.push(chordName(c.root, c.quality))
+  }
+
+  // ---- variation: the harmony above is decided with the main RNG exactly as for variation 0; the arrangement draws
+  // below come from an RNG of (seed, variation) (none are made for variation 0)
+  const varMix = variation > 0 ? Math.imul(variation, 0x85ebca6b) : 0
+  const vr: Rng | null = variation > 0 ? createRng((opts.seed ^ 0x9e3779b9 ^ 0x56 ^ varMix) >>> 0) : null
+  let bassMode: MoodStyle['bass'] = style.bass
+  let padEntry = 4
+  let padSwap = false
+  let padCalmPattern = [0, 1, 2, 1]
+  let fillEvery = 4
+  if (vr) {
+    // the bass moves one step busier or calmer (calm moods only between hold and rock)
+    const ladder: MoodStyle['bass'][] = style.calm ? ['hold', 'rock'] : ['hold', 'rock', 'quarters', 'eighths']
+    const at = ladder.indexOf(style.bass)
+    const cands = [at - 1, at, at + 1].filter((i) => i >= 0 && i < ladder.length)
+    if (at >= 0) bassMode = ladder[cands[weighted(vr, cands.map((i) => (i === at ? 0.3 : 0.35)))]!]!
+    padEntry = pick(vr, [2, 4, 6, 8])
+    padSwap = chance(vr, 0.5)
+    padCalmPattern = pick(vr, [[0, 1, 2, 1], [0, 2, 1, 2], [0, 1, 2, 2], [0, 2, 2, 1]])
+    fillEvery = pick(vr, [2, 4, 4, 8])
   }
 
   // ---- bass
@@ -421,14 +509,17 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     const ch = plan.bass
     const inst = instFor(ch, () => soft('bass', ch, 'bass'))
     parts.push(`${song.channels[ch]!.id} bass: ${song.instruments[inst]!.name}`)
+    for (let bar = 0; bar < introBars; bar++) {
+      if (bar === 0 || bar === introBars - 1) putIntro(ch, bar, noteCell(ch, 36 + introChord(bar).root, inst, 8))
+    }
     for (let bar = 0; bar < bars; bar++) {
       const chord = chordAt(bar)
       const root = 36 + chord.root
       const newChord = bar % style.chordBars === 0
-      if (style.bass === 'hold') {
+      if (bassMode === 'hold') {
         if (newChord) put(ch, bar * ROWS_PER_BAR, noteCell(ch, root, inst, 12))
       } else {
-        for (const step of BASS_PATTERNS[style.bass]) put(ch, bar * ROWS_PER_BAR + step.row, noteCell(ch, root + step.semis, inst, step.row === 0 ? 12 : 10))
+        for (const step of BASS_PATTERNS[bassMode]) put(ch, bar * ROWS_PER_BAR + step.row, noteCell(ch, root + step.semis, inst, step.row === 0 ? 12 : 10))
       }
     }
   }
@@ -440,15 +531,28 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     padInsts.push(inst)
     parts.push(`${song.channels[ch]!.id} pad: ${song.instruments[inst]!.name}`)
   })
+  // two chord voices: the first the third (or so), the second the top tone, one beat late
+  const padPitch = (k: number, chord: ReturnType<typeof romanToChord>): number => {
+    const iv = chord.intervals
+    const voice = padSwap ? 1 - k : k // a variation may swap the two voicings
+    const semis = voice === 0 ? iv[1]! : iv.length >= 4 ? iv[iv.length - 1]! : iv[2] ?? iv[1]!
+    return nearPitch((chord.root + semis) % 12, k === 0 ? 62 : 68)
+  }
+  for (let bar = 0; bar < introBars; bar++) {
+    if (bar !== 0 && bar !== introBars - 1) continue
+    const chord = introChord(bar)
+    plan.pads.forEach((ch, k) => {
+      const pitch = plan.pads.length >= 2 ? padPitch(k, chord) : nearPitch(chord.root, 60)
+      putIntro(ch, bar, noteCell(ch, pitch, padInsts[k]!, 5))
+    })
+  }
   if (plan.pads.length >= 2) {
     plan.pads.forEach((ch, k) => {
       const inst = padInsts[k]!
       for (let bar = 0; bar < bars; bar += style.chordBars) {
         const chord = chordAt(bar)
-        const iv = chord.intervals
-        const semis = k === 0 ? iv[1]! : iv.length >= 4 ? iv[iv.length - 1]! : iv[2] ?? iv[1]!
         // the second pad enters one beat late: the two attacks do not dip together
-        put(ch, bar * ROWS_PER_BAR + (k === 0 ? 0 : 4), noteCell(ch, nearPitch((chord.root + semis) % 12, k === 0 ? 62 : 68), inst, 8))
+        put(ch, bar * ROWS_PER_BAR + (k === 0 ? 0 : padEntry), noteCell(ch, padPitch(k, chord), inst, 8))
       }
     })
   } else if (plan.pads.length === 1) {
@@ -459,7 +563,8 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
       const iv = chord.intervals
       const base = nearPitch(chord.root, 60)
       if (style.calm) {
-        const tones = [0, iv[1]!, iv[2] ?? iv[1]!, iv[1]!]
+        const toneSet = [0, iv[1]!, iv[2] ?? iv[1]!]
+        const tones = padCalmPattern.map((i) => toneSet[i]!)
         tones.forEach((t, q) => put(ch, bar * ROWS_PER_BAR + q * 4, noteCell(ch, base + t, inst, 7)))
       } else {
         const fx = [{ code: '0' as const, param: ((iv[1]! & 15) << 4) | ((iv[2] ?? iv[1]!) & 15) }]
@@ -505,24 +610,83 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
         }
         return cands.find((i) => pcs.includes(notes[i]! % 12)) ?? idx
       }
+      const lrng = vr ?? rng
       const rh = RHYTHMS[style.density]
       // phrase rhythms: set A for even phrases, set B for odd ones, so the music has a recognisable shape
       const makeSet = (): Rhythm[] => {
-        const a = pick(rng, rh.normal)
-        const b = pick(rng, rh.normal)
-        return [a, b, chance(rng, 0.6) ? a : pick(rng, rh.normal), pick(rng, rh.cadence)]
+        const a = pick(lrng, rh.normal)
+        const b = pick(lrng, rh.normal)
+        return [a, b, chance(lrng, 0.6) ? a : pick(lrng, rh.normal), pick(lrng, rh.cadence)]
       }
       const sets = [makeSet(), makeSet()]
       let idx = nearest(center)
       let prevStep = 0
+
+      // motif: transposed to the key, folded into the range, out-of-scale notes moved to the nearest scale note
+      // (in-scale notes stay as written). It starts every even phrase (the last one only if it fits).
+      const motifAt = new Map<number, { notes: { row: number; len: number; idx: number }[] }>()
+      let motifBars = 0
+      if (motif) {
+        motifBars = Math.ceil(motif.rows / ROWS_PER_BAR)
+        const semis = (((parseNote(`${keyPc}4`)! - parseNote(`${motifPc}4`)!) % 12) + 12) % 12
+        const shift = semis > 6 ? semis - 12 : semis
+        const moved = motif.notes.map((n) => n.midi + shift)
+        const oct = bestOctaveShift(moved, lo, hi)
+        const fitted = motif.notes.map((n, i) => ({ row: n.row, len: n.len, idx: nearest(moved[i]! + oct) }))
+        const rngM = createRng((opts.seed ^ 0x9e3779b9 ^ 0x4d ^ varMix) >>> 0) // development of the repeats: never the main RNG
+        const placed: number[] = []
+        for (let start = 0; start < bars; start += 8) {
+          if (start > 0 && start + motifBars > bars) break
+          const r = placed.length
+          let ns = fitted.map((n) => ({ ...n }))
+          if (r >= 1) {
+            // every second repeat is sequenced: moved a scale step or two, starting on a tone of the chord of its first bar
+            if (r % 2 === 0) {
+              const c0 = chordAt(start)
+              const pcs0 = chordPitchClasses(c0.root, c0.intervals)
+              const steps = [1, -1, 2, -2]
+              const at = (i: number): number => Math.max(0, Math.min(notes.length - 1, i))
+              const fits = steps.filter((d) => pcs0.includes(notes[at(ns[0]!.idx + d)]! % 12))
+              const d = pick(rngM, fits.length > 0 ? fits : steps)
+              ns = ns.map((n) => ({ ...n, idx: at(n.idx + d) }))
+            }
+            // the last note, and sometimes the one before it, may move to a tone of the chord under it
+            const tail = [ns.length - 1, ns.length - 2].filter((i) => i >= 0)
+            tail.forEach((i, k) => {
+              if (!chance(rngM, k === 0 ? 0.6 : 0.3)) return
+              const c = chordAt(start + Math.floor(ns[i]!.row / ROWS_PER_BAR))
+              ns[i]!.idx = snap(ns[i]!.idx, chordPitchClasses(c.root, c.intervals))
+            })
+          }
+          motifAt.set(start, { notes: ns })
+          placed.push(start)
+        }
+        motifInfo = { bars: motifBars, transposeSemis: shift, placedAtBars: placed }
+      }
+      let skipUntil = 0
+
       for (let bar = 0; bar < bars; bar++) {
+        const mp = motifAt.get(bar)
+        if (mp) {
+          mp.notes.forEach((n, j) => {
+            const row = bar * ROWS_PER_BAR + n.row
+            put(ch, row, noteCell(ch, notes[n.idx]!, inst, n.row % 8 === 0 ? 11 : 10))
+            const endRow = row + n.len
+            const nextStart = mp.notes[j + 1] ? bar * ROWS_PER_BAR + mp.notes[j + 1]!.row : (bar + motifBars) * ROWS_PER_BAR
+            if (endRow < nextStart) put(ch, endRow, { note: 'rel' })
+          })
+          idx = mp.notes[mp.notes.length - 1]!.idx
+          prevStep = 0
+          skipUntil = bar + motifBars
+        }
+        if (bar < skipUntil) continue
         const phrase = Math.floor(bar / 4)
         const inPhrase = bar % 4
         const lastBarOfSong = bar === bars - 1
         let rhythm = sets[phrase % 2]![inPhrase]!
-        if (lastBarOfSong && inPhrase !== 3) rhythm = pick(rng, rh.cadence)
+        if (lastBarOfSong && inPhrase !== 3) rhythm = pick(lrng, rh.cadence)
         const cadence = inPhrase === 3 || lastBarOfSong
-        if (bar > 0 && !cadence && chance(rng, style.restBars)) rhythm = []
+        if (bar > 0 && !cadence && chance(lrng, style.restBars)) rhythm = []
         const chord = chordAt(bar)
         const pcs = chordPitchClasses(chord.root, chord.intervals)
         rhythm.forEach(([start, len], j) => {
@@ -541,7 +705,7 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
             }
             if (prevStep >= 2) w[1] = w[1]! * 0.3
             if (prevStep <= -2) w[2] = w[2]! * 0.3
-            const step = [0, 1, -1, 2, -2, 3, -3][weighted(rng, w)]!
+            const step = [0, 1, -1, 2, -2, 3, -3][weighted(lrng, w)]!
             prevStep = step
             idx = Math.max(0, Math.min(notes.length - 1, idx + step))
           }
@@ -559,7 +723,7 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
         if (rhythm.length === 0 && bar > 0) {
           // a silent bar: release whatever still rings from the bar before
           const prevRow = bar * ROWS_PER_BAR
-          if (linear[ch]![prevRow] === null) put(ch, prevRow, { note: 'rel' })
+          if (linear[ch]![off + prevRow] === null) put(ch, prevRow, { note: 'rel' })
         }
       }
     }
@@ -579,7 +743,7 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
       }
       parts.push(`${song.channels[ch]!.id} drums: ${roles.join('+')}`)
       for (let bar = 0; bar < bars; bar++) {
-        const isFill = !style.calm && !!drumStyle.fill && bar % 4 === 3 && bar !== bars - 1 && bars > 1
+        const isFill = !style.calm && !!drumStyle.fill && bar % fillEvery === fillEvery - 1 && bar !== bars - 1 && bars > 1
         for (let step = 0; step < 16; step++) {
           const hit = DRUM_PRIORITY.find((role) => {
             if (!roles.includes(role)) return false
@@ -595,9 +759,9 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   }
 
   // ---- write the patterns
-  song.orders = Array.from({ length: bars / patternBars }, () => song.channels.map(() => 0))
+  song.orders = Array.from({ length: (introBars + bars) / patternBars }, () => song.channels.map(() => 0))
   song.channels.forEach((_, i) => writeChannelPatterns(song, i, linear[i]!))
-  song.loop = opts.loop === false ? null : { order: 0 }
+  song.loop = opts.loop === false ? null : { order: introBars / patternBars }
 
   const problems = validateSong(song).filter((x) => x.severity === 'error')
   if (problems.length > 0) throw new Error(`The composed song breaks ${chip.toUpperCase()} limits: ${problems.map((p) => p.message).slice(0, 3).join(' ')}`)
@@ -607,16 +771,19 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     song,
     seed: opts.seed,
     bars,
+    introBars,
+    variation,
     chip,
     bpm,
     key: keyPc,
     scale: scaleId,
     mood: mood.id,
     durationSec: Math.round(songSeconds(song) * 1000) / 1000,
-    loop: song.loop ? { startBar: 0, endBar: bars } : null,
+    loop: song.loop ? { startBar: introBars, endBar: introBars + bars } : null,
     channels: used,
     parts,
     chords: chordNames,
-    progression: prog.id
+    progression: prog.id,
+    motif: motifInfo
   }
 }

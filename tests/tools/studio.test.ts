@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { MOOD_IDS, readWav, renderSong, serializeProject, songSeconds, validateSong } from '../../src/core'
 import { composeSong } from '../../src/tools'
-import { resultText, songSetup } from './helpers'
+import { channelRows, resultText, songSetup } from './helpers'
 
 const CHIPS = ['nes', 'gb', 'genesis', 'snes', 'pce'] as const
 const CALM = ['ambient', 'lullaby', 'peaceful', 'mysterious-calm']
@@ -86,6 +86,184 @@ describe('composer', () => {
   })
 })
 
+describe('composer intro', () => {
+  const base = { mood: 'ambient', chip: 'snes', seed: 42, bars: 8 }
+  it('intro 0 is the same song as no intro', () => {
+    const a = composeSong(base)
+    const b = composeSong({ ...base, intro: 0 })
+    b.song.id = a.song.id
+    expect(serializeProject(b.song)).toBe(serializeProject(a.song))
+    expect(b.introBars).toBe(0)
+  })
+
+  it('puts the intro before the loop: quiet pads and bass, no lead, no drums', () => {
+    const a = composeSong({ mood: 'mysterious-calm', chip: 'snes', seed: 42, bars: 8 })
+    const r = composeSong({ mood: 'mysterious-calm', chip: 'snes', seed: 42, bars: 8, intro: 2 })
+    expect(r.introBars).toBe(2)
+    expect(r.loop).toEqual({ startBar: 2, endBar: 10 })
+    expect(r.song.loop).toEqual({ order: 1 }) // pattern bars 2
+    expect(r.song.orders).toHaveLength(5)
+    expect(r.durationSec).toBeCloseTo(songSeconds(a.song) * (10 / 8), 2)
+    expect([r.bpm, r.key, r.scale, r.chords]).toEqual([a.bpm, a.key, a.scale, a.chords])
+    const rowsOf = (id: string) => channelRows(r.song, id)
+    const lead = rowsOf('V4')
+    expect(lead.slice(0, 32).every((c) => c === null)).toBe(true)
+    expect(lead.slice(32).some((c) => c !== null)).toBe(true)
+    // the body is the same music as without an intro (lead notes shifted by two bars)
+    expect(lead.slice(32)).toEqual(channelRows(a.song, 'V4'))
+    for (const ch of r.channels) {
+      const intro = rowsOf(ch).slice(0, 32)
+      const drums = r.parts.some((p) => p.startsWith(`${ch} drums`))
+      if (drums) expect(intro.every((c) => c === null), `${ch} intro is silent`).toBe(true)
+    }
+    const bass = rowsOf('V1').slice(0, 32).filter((c) => c !== null)
+    expect(bass.length).toBeGreaterThan(0)
+    expect(validateSong(r.song).filter((i) => i.severity === 'error')).toEqual([])
+  })
+
+  it('picks pattern bars that divide both the intro and the body', () => {
+    const r = composeSong({ ...base, bars: 8, intro: 3 })
+    expect(r.song.patternLength).toBe(16)
+    expect(r.song.orders).toHaveLength(11)
+    expect(r.song.loop).toEqual({ order: 3 })
+    expect(r.loop).toEqual({ startBar: 3, endBar: 11 })
+  })
+
+  it('works on every chip and with loop false', () => {
+    for (const chip of CHIPS) {
+      for (const mood of ['peaceful', 'heroic']) {
+        const r = composeSong({ mood, chip, seed: 3, bars: 4, intro: 4 })
+        expect(validateSong(r.song).filter((i) => i.severity === 'error'), `${mood}/${chip}`).toEqual([])
+      }
+    }
+    const once = composeSong({ ...base, intro: 2, loop: false })
+    expect(once.loop).toBeNull()
+    expect(once.song.orders).toHaveLength(5)
+  })
+})
+
+describe('composer motif', () => {
+  const base = { mood: 'ambient', chip: 'snes', seed: 42, bars: 16, key: 'D', scale: 'major' }
+  const motif = 'E5:4 G5:2 A5:2 B5:8'
+  const pcsAt = (rows: ReturnType<typeof channelRows>, at: number[]) => at.map((r) => (rows[r]?.note as number) % 12)
+
+  it('plays the transposed motif at bar 0 of the lead and again every second phrase', () => {
+    const r = composeSong({ ...base, motif, motifKey: 'C' })
+    expect(r.motif).toEqual({ bars: 1, transposeSemis: 2, placedAtBars: [0, 8] })
+    const lead = channelRows(r.song, 'V4')
+    expect(pcsAt(lead, [0, 4, 6, 8])).toEqual([6, 9, 11, 1]) // F# A B C# in D major
+    expect(pcsAt(lead, [8 * 16, 8 * 16 + 4])).toEqual([6, 9]) // the repeat keeps the head of the motif
+    // the other bars are still generated
+    expect(lead.slice(16, 4 * 16).some((c) => c !== null)).toBe(true)
+    expect(validateSong(r.song).filter((i) => i.severity === 'error')).toEqual([])
+  })
+
+  it('keeps the harmony of the same track without the motif', () => {
+    const a = composeSong(base)
+    const r = composeSong({ ...base, motif })
+    expect([r.bpm, r.key, r.scale, r.chords, r.progression]).toEqual([a.bpm, a.key, a.scale, a.chords, a.progression])
+    for (const ch of ['V1', 'V2', 'V3']) expect(channelRows(r.song, ch)).toEqual(channelRows(a.song, ch))
+    expect(a.motif).toBeNull()
+  })
+
+  it('is deterministic for a seed and motif, also with the motif repeating (development)', () => {
+    const o = { ...base, bars: 32, motif: 'E5:4 G5:4 A5:4 B5:2 A5:2 G5:16 E5:8' }
+    const a = composeSong(o)
+    const b = composeSong(o)
+    b.song.id = a.song.id
+    expect(serializeProject(b.song)).toBe(serializeProject(a.song))
+    expect(a.motif!.placedAtBars).toEqual([0, 8, 16, 24])
+    const lead = channelRows(a.song, 'V4')
+    // the first repeat only changes the last notes: the head is the same as the statement
+    expect(lead.slice(8 * 16, 8 * 16 + 12)).toEqual(lead.slice(0, 12))
+  })
+
+  it('moves out-of-scale notes into the scale (a major motif on a minor track)', () => {
+    const r = composeSong({ mood: 'ambient', chip: 'snes', seed: 1, bars: 8, key: 'C', scale: 'minor', motif: 'C5:4 E5:4 G5:4 B5:4', motifKey: 'C' })
+    const lead = channelRows(r.song, 'V4')
+    const pcs = pcsAt(lead, [0, 4, 8, 12])
+    for (const pc of pcs) expect([0, 2, 3, 5, 7, 8, 10]).toContain(pc)
+    expect(pcs[0]).toBe(0) // in-scale notes stay as written
+    expect(pcs[2]).toBe(7)
+  })
+
+  it('rejects a motif longer than 4 bars, instrument/volume/chord tokens and bad notes (with the column)', () => {
+    expect(() => composeSong({ ...base, motif: 'C5:16 D5:16 E5:16 F5:16 G5:16' })).toThrow(/at most 4 bars/)
+    expect(() => composeSong({ ...base, motif: 'C5:4 @lead D5:4' })).toThrow(/col 6, "@lead"/)
+    expect(() => composeSong({ ...base, motif: 'v8 C5:4' })).toThrow(/col 1/)
+    expect(() => composeSong({ ...base, motif: '{C5 E5 G5}:8' })).toThrow(/chord/)
+    expect(() => composeSong({ ...base, motif: 'C5:4 Z9:4' })).toThrow(/motif: [\s\S]*col 6/)
+    expect(() => composeSong({ ...base, motif: 'r:4' })).toThrow(/no notes/)
+    expect(() => composeSong({ ...base, motif, motifKey: 'H' })).toThrow(/Invalid motifKey/)
+  })
+
+  it('a 4-bar motif with a tie and rests works on every chip', () => {
+    for (const chip of CHIPS) {
+      const r = composeSong({ mood: 'heroic', chip, seed: 6, bars: 16, motif: 'E5:4 r:2 G5:2 ~:8 A5:16 B5:16 C6:16' })
+      expect(validateSong(r.song).filter((i) => i.severity === 'error'), chip).toEqual([])
+      expect(r.motif?.bars, chip).toBe(4)
+    }
+  })
+})
+
+describe('composer variation', () => {
+  const base = { mood: 'heroic', chip: 'nes', seed: 8, bars: 16 }
+  const ser = (o: Parameters<typeof composeSong>[0]) => {
+    const r = composeSong(o)
+    r.song.id = 'x'
+    return { r, text: serializeProject(r.song) }
+  }
+
+  it('variation 0 is the original track', () => {
+    expect(ser({ ...base, variation: 0 }).text).toBe(ser(base).text)
+    expect(ser(base).r.variation).toBe(0)
+  })
+
+  it('keeps key, scale, tempo, chords and instruments and changes the lead (and often more)', () => {
+    for (const o of [base, { mood: 'ambient', chip: 'snes', seed: 4, bars: 16 }, { mood: 'lullaby', chip: 'gb', seed: 12, bars: 16 }]) {
+      const a = composeSong(o)
+      const lead = o.chip === 'snes' ? 'V4' : o.chip === 'gb' ? 'P1' : 'P1'
+      let changedLead = 0
+      for (const k of [1, 2, 3, 4]) {
+        const v = composeSong({ ...o, variation: k })
+        expect([v.bpm, v.key, v.scale, v.chords, v.progression, v.parts]).toEqual([a.bpm, a.key, a.scale, a.chords, a.progression, a.parts])
+        expect(v.variation).toBe(k)
+        expect(v.song.instruments.map((i) => i.name)).toEqual(a.song.instruments.map((i) => i.name))
+        expect(validateSong(v.song).filter((i) => i.severity === 'error')).toEqual([])
+        if (JSON.stringify(channelRows(v.song, lead)) !== JSON.stringify(channelRows(a.song, lead))) changedLead++
+      }
+      expect(changedLead, `${o.mood}: lead differs`).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it('is deterministic per (seed, variation) and the variations differ from each other', () => {
+    const a = ser({ ...base, variation: 2 }).text
+    expect(ser({ ...base, variation: 2 }).text).toBe(a)
+    expect(ser({ ...base, variation: 3 }).text).not.toBe(a)
+    expect(a).not.toBe(ser(base).text)
+  })
+
+  it('keeps the motif and changes its development', () => {
+    const o = { mood: 'ambient', chip: 'snes', seed: 3, bars: 32, key: 'C', scale: 'major', motif: 'C5:4 E5:4 G5:8' }
+    const a = composeSong(o)
+    const v = composeSong({ ...o, variation: 1 })
+    expect(v.motif).toEqual(a.motif)
+    const la = channelRows(a.song, 'V4')
+    const lv = channelRows(v.song, 'V4')
+    expect(lv.slice(0, 16)).toEqual(la.slice(0, 16)) // the statement is the same
+    expect(lv.slice(16, 8 * 16)).not.toEqual(la.slice(16, 8 * 16)) // the generated bars after it are not
+  })
+
+  it('works on every chip and mood family', () => {
+    for (const chip of CHIPS) {
+      for (const mood of ['peaceful', 'heroic', 'mysterious-calm']) {
+        const r = composeSong({ mood, chip, seed: 2, bars: 8, variation: 5, intro: 1 })
+        expect(validateSong(r.song).filter((i) => i.severity === 'error'), `${mood}/${chip}`).toEqual([])
+      }
+    }
+  })
+})
+
 describe('compose_track tool', () => {
   it('opens the new song, returns the JSON object last and keeps the replaced song', async () => {
     const t = songSetup()
@@ -127,6 +305,50 @@ describe('compose_track tool', () => {
     const r = await t.call('compose_track', { mood: 'nope' })
     expect(r.isError).toBe(true)
     expect(resultText(r)).toMatch(/Unknown mood/)
+  })
+})
+
+describe('compose_track intro through the tools', () => {
+  it('reports introBars and the loop after the intro; render_audio starts the loop at the intro end', async () => {
+    const t = songSetup()
+    const c = lastJson(await t.ok('compose_track', { mood: 'ambient', chip: 'snes', seed: 1, bars: 4, intro: 2 }))
+    expect(c).toMatchObject({ bars: 4, introBars: 2, loop: { startBar: 2, endBar: 6 } })
+    expect(c['durationSec'] as number).toBeCloseTo(songSeconds(t.session.song), 2)
+    const j = lastJson(await t.ok('render_audio', { path: '/mem/out/intro.wav', format: 'wav' }))
+    const introSec = (2 * 4 * 60) / t.session.song.timing.bpm
+    expect(j['loopStartSec'] as number).toBeCloseTo(introSec, 2)
+    expect(j['loopEndSec'] as number).toBeCloseTo(c['durationSec'] as number, 2)
+    const text = resultText(await t.ok('compose_track', { mood: 'ambient', chip: 'snes', seed: 1, bars: 4, intro: 2 }))
+    expect(text).toMatch(/2-bar intro plays once/)
+    expect((await t.call('compose_track', { mood: 'ambient', intro: 5 })).isError).toBe(true)
+  })
+})
+
+describe('compose_track motif through the tools', () => {
+  it('returns the motif placement and mentions it; bad motifs are error results', async () => {
+    const t = songSetup()
+    const r = await t.ok('compose_track', { mood: 'ambient', chip: 'snes', seed: 1, bars: 16, motif: 'E5:4 G5:4 A5:8', motifKey: 'C' })
+    const j = lastJson(r)
+    expect(j['motif']).toMatchObject({ bars: 1, placedAtBars: [0, 8] })
+    expect(resultText(r)).toMatch(/Motif \(1 bar, transposed .* semitones\) plays at loop bars 0, 8/)
+    const none = await t.ok('compose_track', { mood: 'ambient', chip: 'snes', seed: 1, bars: 4 })
+    expect(lastJson(none)['motif']).toBeNull()
+    expect(resultText(none)).not.toMatch(/Motif/)
+    const bad = await t.call('compose_track', { mood: 'ambient', motif: '@lead C5' })
+    expect(bad.isError).toBe(true)
+  })
+})
+
+describe('compose_track variation through the tools', () => {
+  it('echoes the variation in the JSON and the text; out-of-range values are errors', async () => {
+    const t = songSetup()
+    const r = await t.ok('compose_track', { mood: 'ambient', chip: 'snes', seed: 1, bars: 4, variation: 3 })
+    expect(lastJson(r)['variation']).toBe(3)
+    expect(resultText(r)).toMatch(/seed 1, variation 3\./)
+    const plain = await t.ok('compose_track', { mood: 'ambient', chip: 'snes', seed: 1, bars: 4 })
+    expect(lastJson(plain)['variation']).toBe(0)
+    expect(resultText(plain)).not.toMatch(/, variation/)
+    expect((await t.call('compose_track', { mood: 'ambient', variation: 100 })).isError).toBe(true)
   })
 })
 

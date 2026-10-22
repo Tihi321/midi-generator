@@ -11,6 +11,8 @@ export type { MemoryToolServices, MemoryAudio, MemoryAssets } from './memoryServ
 export { allTools, createDefaultRegistry } from './defs'
 export { composeSong, createRng, defaultChipForMood } from './composer'
 export type { ComposeOptions, ComposeResult } from './composer'
+export { SFX_SOUNDS, composeSfx } from './sfx'
+export type { SfxKind, SfxOptions, SfxResult } from './sfx'
 export { exportWithSidecar, renderSongToFile } from './audioExport'
 export type { RenderAudioOptions, RenderAudioResult } from './audioExport'
 export { createInProcessAudio } from './inProcessAudio'

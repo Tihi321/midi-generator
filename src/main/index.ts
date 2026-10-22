@@ -6,7 +6,7 @@ import { ToolBridge } from './toolBridge'
 import { startMcp } from './mcpApp'
 import { registerAgentIpc } from './agentIpc'
 import { startAssets } from './assetsApp'
-import { DEFAULT_HEADLESS_PORT, parseCli } from './cli'
+import { headlessPort, parseCli } from './cli'
 import { startHeadless } from './headless'
 
 /** The tool bridge to the renderer's live song; the agent runner and MCP server use it as their ToolHost. */
@@ -90,7 +90,8 @@ function runHeadless(): void {
   // No window ever opens, so there is no `window-all-closed`; being explicit keeps the app alive if that changes.
   app.on('window-all-closed', () => undefined)
   void app.whenReady().then(async () => {
-    const port = cli.port ?? DEFAULT_HEADLESS_PORT
+    const { port, warning } = headlessPort(cli)
+    if (warning) console.warn(warning)
     const h = await startHeadless({ port, log: (m) => console.warn(`[mcp] ${m}`) })
     if (!h.status.running) {
       console.error(`MCP server failed to start: ${h.status.error ?? 'unknown error'}`)

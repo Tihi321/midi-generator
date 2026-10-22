@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { type Song, createCellsCommand, createSong, parseNote, parseProject, serializeProject } from '../../src/core'
+import { type Cell, type Song, createCellsCommand, createSong, parseNote, parseProject, serializeProject } from '../../src/core'
 import { SongSession, ToolRegistry, createDefaultRegistry, createMemoryToolServices, defineTool, resultText, textResult } from '../../src/tools'
 import type { ToolResult } from '../../src/tools'
 
@@ -67,4 +67,15 @@ export { resultText }
 /** Canonical text of the whole song (for "did this change anything" checks). */
 export function snapshot(song: Song): string {
   return serializeProject(parseProject(serializeProject(song)), false)
+}
+
+/** One channel of a song as a linear list of cells (one entry per song row, orders unrolled). */
+export function channelRows(song: Song, channelId: string): (Cell | null)[] {
+  const ci = song.channels.findIndex((c) => c.id === channelId)
+  const out: (Cell | null)[] = []
+  for (const order of song.orders) {
+    const pat = song.patterns.get(`${channelId}:${order[ci]!}`)
+    for (let r = 0; r < song.patternLength; r++) out.push(pat?.rows[r] ?? null)
+  }
+  return out
 }

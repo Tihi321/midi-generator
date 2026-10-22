@@ -38,9 +38,10 @@ In the app window the MCP server listens on `http://127.0.0.1:7458/mcp` (Setting
 yarn build
 yarn mcp                         # = electron . --mcp-only      (packaged: "Chiptune Studio.exe" --mcp-only)
 yarn mcp --port 7500
+CHIPTUNE_STUDIO_MCP_PORT=7500 yarn mcp   # same, from the environment (--port wins)
 ```
 
-- It starts the same MCP Streamable HTTP server with no window and logs `MCP listening on http://127.0.0.1:<port>/mcp` to stdout. Default port 7458.
+- It starts the same MCP Streamable HTTP server with no window and logs `MCP listening on http://127.0.0.1:<port>/mcp` to stdout. Default port 7458; `--port` wins over the `CHIPTUNE_STUDIO_MCP_PORT` environment variable (headless only: the window keeps its Settings > MCP port).
 - Every tool runs in the Electron main process (plain Node) on a headless song: the song model, the tool registry and the synth are pure TypeScript, so audio renders offline in-process. There is no hidden window and no renderer. `play` / `stop` are not available; `render_audio` gives you a file instead.
 - It does not take the single-instance lock, so it can run next to the app window. If the window is started while the headless server holds port 7458, the window still opens and Settings > MCP shows `Port 7458 is already in use`. Use `--port` for one of them.
 - `CHIPTUNE_STUDIO_HOME` moves the data folder (default `~/ChiptuneStudio`). `CHIPTUNE_STUDIO_MCP_TOKEN` sets a bearer token for the headless server.
@@ -50,7 +51,8 @@ yarn mcp --port 7500
 
 | Tool | What it does |
 | --- | --- |
-| `compose_track` | `{mood, chip?, bpm?, key?, scale?, bars?, seconds?, loop?, seed?, instruments?, name?}`: composes a whole track (progression, bass, pads, melody, optional drums) and makes it the current song. Deterministic per seed. Calm moods `ambient`, `lullaby`, `peaceful`, `mysterious-calm` use soft presets, 60-90 BPM and no or very quiet drums. |
+| `compose_track` | `{mood, chip?, bpm?, key?, scale?, bars?, seconds?, intro?, motif?, motifKey?, variation?, loop?, seed?, instruments?, name?}`: composes a whole track (progression, bass, pads, melody, optional drums) and makes it the current song. Deterministic per seed. `intro` (0..4 bars) adds a quiet pad/bass intro that plays once before the loop (`bars` stays the loop body). `motif` (`write_melody` text, at most 4 bars, e.g. `"E5:4 G5:2 A5:2 B5:8"`) + `motifKey` make a leitmotif: the lead line of every even 4-bar phrase, fitted to the track's key and scale, lightly developed in the repeats. `variation` (1..99) re-rolls the arrangement of the same track (same key, chords, tempo, instruments and motif; other lead, bass, pads and drum fills): one theme for several scenes. 0 (default) is the original. Calm moods `ambient`, `lullaby`, `peaceful`, `mysterious-calm` use soft presets, 60-90 BPM and no or very quiet drums. |
+| `compose_sfx` | `{kind: sfx\|stinger\|ambience, sound, chip?, key?, seconds?, pitch?, seed?, songName?, path?, format?}`: a sound effect (`coin`, `jump`, `hit`, `explosion`, `laser`, `powerup`, `blip`, `confirm`, `cancel`, `door`, `footstep`, `chime`, `magic`, `heal`, `alert`, `text`, `thunder`; one-shot, under 2 s), a stinger (`success`, `fail`, `reveal`, `danger`, `sad`, `mystery`, `discovery`, `romance`, `level-up`; 2 bars in `key`) or a seamless ambience loop (`wind`, `rain`, `waves`, `cave`, `night`, `fire`, `drone`, `machine`; `seconds` 4..120). Becomes the current song; with `path` it is rendered in the same call. Default chip: nes for sfx, snes for the rest. |
 | `render_audio` | `{path, song?, format?: ogg\|wav\|mp3, loops?, fadeOutSec?, sampleRate?}`: renders to one file. ogg and mp3 need ffmpeg (`FFMPEG_PATH`, else on PATH); without it a `.wav` is written next to the path and `warning` says so. A looping song ends exactly at the loop end; the result has `loopStartSec` / `loopEndSec` (and samples) for a seamless loop. |
 | `save_song` / `open_song` | save or load the native `.ctune` file; `open_song` takes `exportTo` / `exportFormat` to export the audio on every save. |
 | `list_songs` / `delete_song` | the songs held in this session; deleting never touches files. |

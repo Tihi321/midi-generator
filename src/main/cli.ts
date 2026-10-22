@@ -1,6 +1,6 @@
 // Command line of the app. No Electron import (testable).
 //
-//   --mcp-only [--port N]                      headless MCP server, no window
+//   --mcp-only [--port N]                      headless MCP server, no window (port: --port, else env CHIPTUNE_STUDIO_MCP_PORT, else 7458)
 //   --open <file.ctune> [--export-to <file>] [--export-format ogg|wav|mp3]
 //                                              open a song in the window; every save also exports the looping audio
 //
@@ -56,6 +56,16 @@ function collectValues(args: string[]): Map<string, string | undefined> {
 
 function valueOf(values: Map<string, string | undefined>, flag: string): { found: boolean; value?: string } {
   return values.has(flag) ? { found: true, value: values.get(flag) } : { found: false }
+}
+
+/** Headless port: `--port` wins, else CHIPTUNE_STUDIO_MCP_PORT, else the default. A bad env value warns and falls back. */
+export function headlessPort(cli: Pick<CliOptions, 'port'>, env: NodeJS.ProcessEnv = process.env): { port: number; warning?: string } {
+  if (cli.port !== undefined) return { port: cli.port }
+  const raw = env.CHIPTUNE_STUDIO_MCP_PORT
+  if (raw === undefined || raw === '') return { port: DEFAULT_HEADLESS_PORT }
+  const n = Number(raw)
+  if (Number.isInteger(n) && n >= 0 && n <= 65535) return { port: n }
+  return { port: DEFAULT_HEADLESS_PORT, warning: `CHIPTUNE_STUDIO_MCP_PORT needs a number 0..65535 (got "${raw}"); using the default.` }
 }
 
 /** Format for an export file: the explicit flag, else the extension, else ogg. */
