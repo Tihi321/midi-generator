@@ -206,6 +206,64 @@ describe('composer motif', () => {
   })
 })
 
+describe('composer variation', () => {
+  const base = { mood: 'heroic', chip: 'nes', seed: 8, bars: 16 }
+  const ser = (o: Parameters<typeof composeSong>[0]) => {
+    const r = composeSong(o)
+    r.song.id = 'x'
+    return { r, text: serializeProject(r.song) }
+  }
+
+  it('variation 0 is the original track', () => {
+    expect(ser({ ...base, variation: 0 }).text).toBe(ser(base).text)
+    expect(ser(base).r.variation).toBe(0)
+  })
+
+  it('keeps key, scale, tempo, chords and instruments and changes the lead (and often more)', () => {
+    for (const o of [base, { mood: 'ambient', chip: 'snes', seed: 4, bars: 16 }, { mood: 'lullaby', chip: 'gb', seed: 12, bars: 16 }]) {
+      const a = composeSong(o)
+      const lead = o.chip === 'snes' ? 'V4' : o.chip === 'gb' ? 'P1' : 'P1'
+      let changedLead = 0
+      for (const k of [1, 2, 3, 4]) {
+        const v = composeSong({ ...o, variation: k })
+        expect([v.bpm, v.key, v.scale, v.chords, v.progression, v.parts]).toEqual([a.bpm, a.key, a.scale, a.chords, a.progression, a.parts])
+        expect(v.variation).toBe(k)
+        expect(v.song.instruments.map((i) => i.name)).toEqual(a.song.instruments.map((i) => i.name))
+        expect(validateSong(v.song).filter((i) => i.severity === 'error')).toEqual([])
+        if (JSON.stringify(channelRows(v.song, lead)) !== JSON.stringify(channelRows(a.song, lead))) changedLead++
+      }
+      expect(changedLead, `${o.mood}: lead differs`).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it('is deterministic per (seed, variation) and the variations differ from each other', () => {
+    const a = ser({ ...base, variation: 2 }).text
+    expect(ser({ ...base, variation: 2 }).text).toBe(a)
+    expect(ser({ ...base, variation: 3 }).text).not.toBe(a)
+    expect(a).not.toBe(ser(base).text)
+  })
+
+  it('keeps the motif and changes its development', () => {
+    const o = { mood: 'ambient', chip: 'snes', seed: 3, bars: 32, key: 'C', scale: 'major', motif: 'C5:4 E5:4 G5:8' }
+    const a = composeSong(o)
+    const v = composeSong({ ...o, variation: 1 })
+    expect(v.motif).toEqual(a.motif)
+    const la = channelRows(a.song, 'V4')
+    const lv = channelRows(v.song, 'V4')
+    expect(lv.slice(0, 16)).toEqual(la.slice(0, 16)) // the statement is the same
+    expect(lv.slice(16, 8 * 16)).not.toEqual(la.slice(16, 8 * 16)) // the generated bars after it are not
+  })
+
+  it('works on every chip and mood family', () => {
+    for (const chip of CHIPS) {
+      for (const mood of ['peaceful', 'heroic', 'mysterious-calm']) {
+        const r = composeSong({ mood, chip, seed: 2, bars: 8, variation: 5, intro: 1 })
+        expect(validateSong(r.song).filter((i) => i.severity === 'error'), `${mood}/${chip}`).toEqual([])
+      }
+    }
+  })
+})
+
 describe('compose_track tool', () => {
   it('opens the new song, returns the JSON object last and keeps the replaced song', async () => {
     const t = songSetup()
@@ -278,6 +336,19 @@ describe('compose_track motif through the tools', () => {
     expect(resultText(none)).not.toMatch(/Motif/)
     const bad = await t.call('compose_track', { mood: 'ambient', motif: '@lead C5' })
     expect(bad.isError).toBe(true)
+  })
+})
+
+describe('compose_track variation through the tools', () => {
+  it('echoes the variation in the JSON and the text; out-of-range values are errors', async () => {
+    const t = songSetup()
+    const r = await t.ok('compose_track', { mood: 'ambient', chip: 'snes', seed: 1, bars: 4, variation: 3 })
+    expect(lastJson(r)['variation']).toBe(3)
+    expect(resultText(r)).toMatch(/seed 1, variation 3\./)
+    const plain = await t.ok('compose_track', { mood: 'ambient', chip: 'snes', seed: 1, bars: 4 })
+    expect(lastJson(plain)['variation']).toBe(0)
+    expect(resultText(plain)).not.toMatch(/, variation/)
+    expect((await t.call('compose_track', { mood: 'ambient', variation: 100 })).isError).toBe(true)
   })
 })
 

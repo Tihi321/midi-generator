@@ -22,7 +22,7 @@ export const studioTools = [
     name: 'compose_track',
     group: 'song',
     description:
-      'Compose a whole track in one call and open it as the current song (the song that was open is kept: list_songs, open_song). A procedural composer (chord progression, bass, pads, melody, optional drums) built on the mood recipes, so you get a finished loop to render with render_audio, or to refine with write_pattern / write_melody. Deterministic: the same seed and arguments give the same song. Calm moods ("ambient", "lullaby", "peaceful", "mysterious-calm") use soft presets, slow tempo and no or very sparse drums. With loop true (default) the loop covers the whole song and ends exactly at the song end. With intro 1..4 a quiet intro (pads and bass on the tonic, no lead, no drums) plays once before the loop: bars / seconds are the loop body, the loop starts after the intro, and render_audio reports that as loopStartSec. With motif (the write_melody text format, at most 4 bars, e.g. "E5:4 G5:2 A5:2 B5:8") that leitmotif is the lead line of every even 4-bar phrase, transposed from motifKey to the track key and fitted to the scale; later repeats are lightly developed, the other phrases stay generated. Returns songId, chip, bpm, key, scale, bars, introBars, motif ({bars, transposeSemis, placedAtBars} or null), seed, durationSec and loop as JSON. Example: {"mood":"ambient","chip":"snes","seed":1}.',
+      'Compose a whole track in one call and open it as the current song (the song that was open is kept: list_songs, open_song). A procedural composer (chord progression, bass, pads, melody, optional drums) built on the mood recipes, so you get a finished loop to render with render_audio, or to refine with write_pattern / write_melody. Deterministic: the same seed and arguments give the same song. Calm moods ("ambient", "lullaby", "peaceful", "mysterious-calm") use soft presets, slow tempo and no or very sparse drums. With loop true (default) the loop covers the whole song and ends exactly at the song end. With intro 1..4 a quiet intro (pads and bass on the tonic, no lead, no drums) plays once before the loop: bars / seconds are the loop body, the loop starts after the intro, and render_audio reports that as loopStartSec. With motif (the write_melody text format, at most 4 bars, e.g. "E5:4 G5:2 A5:2 B5:8") that leitmotif is the lead line of every even 4-bar phrase, transposed from motifKey to the track key and fitted to the scale; later repeats are lightly developed, the other phrases stay generated. With variation 1..99 you get a different arrangement of the same track (same seed and arguments): same key, scale, tempo, chords, instruments and motif, but other lead rhythms and notes, bass pattern, pad voicing and drum fills; 0 (default) is the original, so one theme can serve several scenes. Returns songId, chip, bpm, key, scale, bars, introBars, variation, motif ({bars, transposeSemis, placedAtBars} or null), seed, durationSec and loop as JSON. Example: {"mood":"ambient","chip":"snes","seed":1}.',
     input: obj({
       mood: z.string().min(1).describe('Mood id or alias (get_mood_recipe lists them): ambient, lullaby, peaceful, mysterious-calm, chill, heroic, ...'),
       chip: z.string().optional().describe('Chip: nes, gb, genesis, snes, pce. Default depends on the mood (SNES for calm moods, NES otherwise).'),
@@ -34,6 +34,7 @@ export const studioTools = [
       intro: z.number().int().min(0).max(4).optional().describe('Intro bars (0..4, default 0) played once before the loop: quiet pads and bass, no lead, no drums. Not part of bars / seconds.'),
       motif: z.string().min(1).optional().describe('A leitmotif in the write_melody text format: note names, :N lengths in rows (16 rows = 1 bar), r rests, ~ ties; at most 4 bars. No @instrument, vNN, chords or effects. Example: "E5:4 G5:2 A5:2 B5:8". It becomes the lead line of every even 4-bar phrase (from the first loop bar), fitted to the track key and scale.'),
       motifKey: z.string().min(1).optional().describe('The key the motif is written in (default "C"). It is transposed to the track key; out-of-scale notes move to the nearest scale note.'),
+      variation: z.number().int().min(0).max(99).optional().describe('A different arrangement of the same track: same key, chords, tempo, instruments and motif, other lead, bass, pads and drum fills. 0 (default) = the original track for the seed.'),
       loop: z.boolean().optional().describe('Loop the whole song (default true). false = a one-shot piece.'),
       seed: z.number().int().min(0).max(4294967295).optional().describe('Random seed (default: random; the used seed is returned). Same seed + same arguments = same song.'),
       instruments: z.record(z.string(), z.string()).optional().describe('Channel id -> preset id or role, e.g. {"V4":"snes.flute.soft"}. Default: soft presets for calm moods, role presets otherwise.'),
@@ -45,7 +46,7 @@ export const studioTools = [
       const r = composeSong({ ...args, seed })
       activateSong(session, r.song, null, `Compose ${r.mood}`)
       const text = [
-        `Composed "${r.song.name}": ${r.chip.toUpperCase()}, ${r.bpm} BPM, ${r.key} ${r.scale}, mood ${r.mood}, ${r.bars} bars${r.introBars ? ` + ${r.introBars} intro` : ''} = ${r.durationSec.toFixed(1)} s, seed ${seed}.`,
+        `Composed "${r.song.name}": ${r.chip.toUpperCase()}, ${r.bpm} BPM, ${r.key} ${r.scale}, mood ${r.mood}, ${r.bars} bars${r.introBars ? ` + ${r.introBars} intro` : ''} = ${r.durationSec.toFixed(1)} s, seed ${seed}${r.variation ? `, variation ${r.variation}` : ''}.`,
         `Chords (progression ${r.progression}, ${r.chords.length} chord slots): ${r.chords.join(' ')}.`,
         `Parts: ${r.parts.join('; ')}.`,
         r.motif ? `Motif (${r.motif.bars} bar${r.motif.bars === 1 ? '' : 's'}, transposed ${r.motif.transposeSemis} semitones) plays at loop bars ${r.motif.placedAtBars.join(', ')}; the other phrases are generated.` : '',
@@ -64,6 +65,7 @@ export const studioTools = [
         mood: r.mood,
         bars: r.bars,
         introBars: r.introBars,
+        variation: r.variation,
         motif: r.motif,
         seed,
         durationSec: r.durationSec,
