@@ -9,4 +9,4 @@ What Chiptune Studio still lacks, found while VN Studio and the creative hub (`C
 
 ## Open
 
-Nothing. The last item (VN Studio calling `compose_sfx`) is done in VN Studio as VNO-19 (hub ticket HUB-13, branch `VNO-10-19_hub-roadmap` of `C:\projects\Personalisual-novels-orchestrator`): `sound.sfxEngine: "chiptune"` makes `sfx_` sounds and `sound.ambienceEngine: "chiptune"` makes `amb_` ambience loops with `compose_sfx` (with `path`). It picks the sound name from the asset's key and description and falls back to `blip` / `drone` with a warning. The HUB-03 test game used a `compose_sfx` door sound imported by hand (2026-10-22).
+Nothing. The last item (VN Studio calling `compose_sfx`) is done in VN Studio as VNO-19 (hub ticket HUB-13, branch `VNO-10-19_hub-roadmap` of `C:\projects\Personalvisual-novels-orchestrator`): `sound.sfxEngine: "chiptune"` makes `sfx_` sounds and `sound.ambienceEngine: "chiptune"` makes `amb_` ambience loops with `compose_sfx` (with `path`). It picks the sound name from the asset's key and description and falls back to `blip` / `drone` with a warning. The HUB-03 test game used a `compose_sfx` door sound imported by hand (2026-10-22).
