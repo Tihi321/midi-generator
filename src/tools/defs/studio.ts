@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { parseProject, serializeProject } from '../../core'
 import { exportWithSidecar, renderSongToFile } from '../audioExport'
 import { composeSong } from '../composer'
+import { SFX_SOUNDS, composeSfx } from '../sfx'
 import { defineTool } from '../registry'
 import type { ExportTarget } from '../session'
 import { activateSong, deleteSong, listSongs, resolveSong } from '../songStore'
@@ -72,6 +73,40 @@ export const studioTools = [
         loop: r.loop,
         channels: r.channels
       })
+    }
+  }),
+
+  defineTool({
+    name: 'compose_sfx',
+    group: 'song',
+    description:
+      `Make a sound effect, a stinger or an ambience loop in one call and open it as the current song (the song that was open is kept: list_songs, open_song). Chiptune sounds from the chip's own presets, deterministic per seed. kind "sfx" (one-shot, under 2 s): ${SFX_SOUNDS.sfx.join(', ')}. kind "stinger" (1-2 bars in a key, ends on a held chord, one-shot): ${SFX_SOUNDS.stinger.join(', ')}. kind "ambience" (loops over the whole song, seamless): ${SFX_SOUNDS.ambience.join(', ')}. With path the audio is rendered in the same call (ogg / wav / mp3) and the file info is returned too; a looping ambience file ends at the loop end (loopStartSec 0). Default chip: nes for sfx, snes for stingers and ambience. Returns songId, kind, sound, chip, bpm, seed, durationSec and loop as JSON (plus the render fields with path). Examples: {"kind":"sfx","sound":"coin","path":"C:\\sfx\\coin.ogg"}, {"kind":"ambience","sound":"rain","seconds":30}.`,
+    input: obj({
+      kind: z.enum(['sfx', 'stinger', 'ambience']).describe('sfx (one-shot effect), stinger (short musical sting) or ambience (seamless loop).'),
+      sound: z.string().min(1).describe('The sound of that kind (see the description); an unknown name lists the valid ones.'),
+      chip: z.string().optional().describe('Chip: nes, gb, genesis, snes, pce. Default: nes for sfx, snes for stingers and ambience.'),
+      key: z.string().min(1).optional().describe('Tonic of stingers and of the drone of an ambience, e.g. "C", "F#" (default C).'),
+      seconds: z.number().min(4).max(120).optional().describe('Ambience length (default 16), rounded to whole 2 s bars. Ignored for sfx and stingers.'),
+      pitch: z.number().int().min(-12).max(12).optional().describe('Semitones added to the pitched notes of sfx and stingers (default 0).'),
+      seed: z.number().int().min(0).max(4294967295).optional().describe('Random seed (default: random; the used seed is returned). Moves a one-shot by up to a semitone and shapes the random parts of ambience.'),
+      songName: z.string().min(1).optional().describe('Song name (default "<sound> (<kind>, <CHIP>)").'),
+      path: z.string().min(1).optional().describe('Also render to this file: an absolute path or a file name (goes to ~/ChiptuneStudio/exports). The extension is set from the format.'),
+      format: z.enum(['ogg', 'wav', 'mp3']).optional().describe('Audio format with path (default ogg).')
+    }),
+    handler: async (args, ctx) => {
+      const session = songSession(ctx)
+      const seed = args.seed ?? Math.floor(Math.random() * 2 ** 31)
+      const r = composeSfx({ kind: args.kind, sound: args.sound, chip: args.chip, key: args.key, seconds: args.seconds, pitch: args.pitch, seed, songName: args.songName })
+      activateSong(session, r.song, null, `Compose ${r.kind} ${r.sound}`)
+      const rendered = args.path ? await renderSongToFile(r.song, ctx.services, { path: args.path, format: args.format }) : null
+      const text = [
+        `Made ${r.kind} "${r.sound}" ("${r.song.name}"): ${r.chip.toUpperCase()}, ${r.durationSec.toFixed(2)} s, seed ${seed}.`,
+        r.loop ? `Loops over the whole song (bars ${r.loop.startBar}..${r.loop.endBar}); the loop ends exactly at the song end.` : 'One-shot: no loop.',
+        rendered ? `Rendered to ${baseName(rendered.path)} (${rendered.format}, ${rendered.durationSec.toFixed(2)} s).` : 'Next: render_audio {"path":"<absolute path>.ogg"} to get the file.',
+        ...(rendered?.warning ? [`Warning: ${rendered.warning}`] : []),
+        ...(rendered ? [rendered.path] : [])
+      ].join('\n')
+      return okJson(text, { songId: r.song.id, name: r.song.name, kind: r.kind, sound: r.sound, chip: r.chip, bpm: r.bpm, seed, durationSec: r.durationSec, loop: r.loop, ...(rendered ? { ...rendered } : {}) })
     }
   }),
 
