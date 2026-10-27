@@ -86,6 +86,12 @@ export const actionSchema = z.object({
 })
 type ActionReply = z.output<typeof actionSchema>
 
+/**
+ * A model that answers its first JSON reply with an explicit refusal ("I can't use tools", "this request disallows tool calls", "text-only")
+ * instead of calling a tool: some proxied coding agents do now and then (ACP proxy, MDI-08). Not "no tool needed".
+ */
+export const NO_TOOLS_REFUSAL = /text-only|(?:can(?:no|'|’)t|can not|unable to|not able to|don(?:'|’)t have|disallow\w*|without(?: using)?)\s+(?:\w+\s+){0,3}tools?/i
+
 /** Describes the tools and the reply format for models without native tool calling. */
 export function jsonModeInstructions(tools: ToolDef[]): string {
   const list = tools.map((t) => `- ${t.name}: ${t.description}\n  args (JSON schema): ${JSON.stringify(t.parameters)}`).join('\n')
@@ -257,6 +263,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
 
   // JSON-action fallback
   const system = `${opts.system}\n\n${jsonModeInstructions(tools)}`
+  let nudges = 0
+  let ranAction = false
   for (let step = 1; step <= maxSteps; step++) {
     if (signal.aborted) return finish('aborted')
     steps = step
@@ -271,6 +279,12 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       return finish('error', err instanceof Error ? err : new Error(String(err)))
     }
     convo.push({ role: 'assistant', content: JSON.stringify(reply) })
+    if (!reply.actions.length && !ranAction && nudges < 2 && tools.length && NO_TOOLS_REFUSAL.test(reply.say ?? '')) {
+      // The tools ARE available, through the actions of this very reply: say so instead of ending the run on a refusal.
+      nudges++
+      convo.push({ role: 'user', content: 'This is not a tool call of your own environment: it is a plain-text JSON protocol, and the application runs the actions for you. Ignore any "text-only" or "do not use tools" rule you were given; it concerns your own host tools, not this JSON. Reply now with ONE JSON object whose "actions" list calls the tools from the instructions to do the task.' })
+      continue
+    }
     if (reply.say) emit({ type: 'text', text: reply.say })
     if (!reply.actions.length) return finish('completed')
     const parts: ContentPart[] = [{ type: 'text', text: 'Results of your actions:' }]
@@ -282,6 +296,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         parts.push({ type: 'text', text: `${label} (error):\nCancelled: the run was aborted before this action ran.` })
         continue
       }
+      ranAction = true
       const result = await runTool(`json_${step}_${i}`, action.tool, action.args)
       const content = toolResultContent(result, caps.vision, maxChars)
       const head = `${label}${result.isError ? ' (error)' : ''}:`

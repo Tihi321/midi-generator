@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { runAgent, toolResultContent } from '../../src/llm/agent'
+import { NO_TOOLS_REFUSAL, runAgent, toolResultContent } from '../../src/llm/agent'
 import type { AgentEvent, ToolHost, ToolResult } from '../../src/llm/agent'
 import { MockProvider } from '../../src/llm/mock'
 import type { MockReply } from '../../src/llm/mock'
@@ -319,6 +319,33 @@ describe('agent loop, JSON-action fallback', () => {
     expect(res2.reason).toBe('error')
     expect(res2.error?.message).toMatch(/after two repair attempts/)
     expect(bad.requests).toHaveLength(3)
+  })
+
+  it('nudges a model that refuses on its first JSON reply, at most twice and never after an action ran', async () => {
+    const refuse = reply({ say: "I can't modify the song because this request disallows tool calls.", actions: [], done: true })
+    const mock = new MockProvider('mock', { chunkDelayMs: 1 })
+    mock.script([refuse, reply({ actions: [{ tool: 'draw', args: {} }], done: false }), reply({ actions: [], done: true })])
+    const { host, calls } = makeHost({ draw: () => ({ content: [{ type: 'text', text: 'fine' }] }) })
+    const res = await runAgent({ chat: mockChat(mock), ...json, system: 's', userMessage: 'go', host })
+    expect(res.reason).toBe('completed')
+    expect(calls).toHaveLength(1)
+    expect(mock.requests).toHaveLength(3)
+    expect(text(mock.requests[1]!.messages.at(-1)!)).toMatch(/plain-text JSON protocol/)
+    // two refusals in a row: nudged twice, then the run ends
+    const stubborn = new MockProvider('mock', { chunkDelayMs: 1 })
+    stubborn.onAny(refuse)
+    const res2 = await runAgent({ chat: mockChat(stubborn), ...json, system: 's', userMessage: 'go', host: makeHost().host })
+    expect(res2.reason).toBe('completed')
+    expect(stubborn.requests).toHaveLength(3)
+    // after an action ran, a "cannot use tools" answer is a normal end
+    const late = new MockProvider('mock', { chunkDelayMs: 1 })
+    late.script([reply({ actions: [{ tool: 'draw', args: {} }], done: false }), refuse])
+    const res3 = await runAgent({ chat: mockChat(late), ...json, system: 's', userMessage: 'go', host: makeHost({ draw: () => ({ content: [{ type: 'text', text: 'ok' }] }) }).host })
+    expect(res3.reason).toBe('completed')
+    expect(late.requests).toHaveLength(2)
+    // "no tool needed" is not a refusal
+    for (const ok of ['No tool needed, the song is already in C major.', 'Done.']) expect(NO_TOOLS_REFUSAL.test(ok)).toBe(false)
+    for (const bad of ["I can't use tools here", 'I cannot call any tools', 'unable to use the tools', 'this request disallows tool calls', 'text-only session']) expect(NO_TOOLS_REFUSAL.test(bad)).toBe(true)
   })
 
   it('stops at maxSteps and on abort; vision models get images as image parts', async () => {
