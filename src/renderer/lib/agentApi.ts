@@ -1,7 +1,7 @@
 // Typed wrappers over window.chiptuneStudio for the agent, the LLM settings and the MCP settings.
 // Every call tolerates a missing handler (the main side may not have registered it): it rejects, and callers show a message.
 
-import { AGENT_IPC, LLM_IPC, type AgentSendResponse, type AgentState, type AgentUiEvent, type ChatSummary, type LlmAddModel, type LlmCatalog, type LlmOverview, type OpenedChat } from '../../shared/agent'
+import { AGENT_IPC, LLM_IPC, type AgentSendResponse, type AgentState, type AgentUiEvent, type ChatSummary, type LlmAddModel, type LlmCatalog, type LlmOverview, type LlmSaveProvider, type LlmTestProvider, type LlmTestResult, type OpenedChat } from '../../shared/agent'
 import { MCP_IPC, type McpSettings, type McpState } from '../../shared/mcp'
 
 function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
@@ -31,6 +31,10 @@ export const llmApi = {
   catalog: (providerId: string) => invoke<LlmCatalog>(LLM_IPC.catalog, providerId),
   showModels: (refs: string[], shown: boolean) => invoke<LlmOverview>(LLM_IPC.showModels, refs, shown),
   addModel: (cmd: LlmAddModel) => invoke<LlmOverview>(LLM_IPC.addModel, cmd),
+  saveProvider: (cmd: LlmSaveProvider) => invoke<LlmOverview>(LLM_IPC.saveProvider, cmd),
+  removeProvider: (id: string) => invoke<LlmOverview>(LLM_IPC.removeProvider, id),
+  testProvider: (cmd: LlmTestProvider) => invoke<LlmTestResult>(LLM_IPC.testProvider, cmd),
+  setProviderEnabled: (id: string, enabled: boolean) => invoke<LlmOverview>(LLM_IPC.setProviderEnabled, id, enabled),
   openConfigFolder: () => invoke<string>(LLM_IPC.openConfigFolder)
 }
 

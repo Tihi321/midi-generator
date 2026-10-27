@@ -4,7 +4,7 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { AGENT_IPC, LLM_IPC, type AgentSendRequest, type AgentUiEvent, type LlmAddModel } from '../shared/agent'
+import { AGENT_IPC, LLM_IPC, type AgentSendRequest, type AgentUiEvent, type LlmAddModel, type LlmSaveProvider, type LlmTestProvider } from '../shared/agent'
 import { GUIDE } from '../tools'
 import { AgentRunner } from './agent'
 import { ChatHistoryStore } from './chatHistory'
@@ -65,6 +65,10 @@ export function registerAgentIpc(ipc: IpcLike, bridge: ToolBridge): AgentHandles
   ipc.handle(LLM_IPC.catalog, (_e, providerId) => llm.catalog(String(providerId)))
   ipc.handle(LLM_IPC.showModels, (_e, refs, shown) => llm.showModels(Array.isArray(refs) ? refs.map(String) : [], shown === true))
   ipc.handle(LLM_IPC.addModel, (_e, cmd) => llm.addModel(cmd as LlmAddModel))
+  ipc.handle(LLM_IPC.saveProvider, (_e, cmd) => llm.saveProvider(cmd as LlmSaveProvider))
+  ipc.handle(LLM_IPC.removeProvider, (_e, id) => llm.removeProvider(String(id)))
+  ipc.handle(LLM_IPC.testProvider, (_e, cmd) => llm.testProvider(cmd as LlmTestProvider))
+  ipc.handle(LLM_IPC.setProviderEnabled, (_e, id, enabled) => llm.setProviderEnabled(String(id), enabled === true))
   ipc.handle(LLM_IPC.openConfigFolder, async () => {
     await llm.get().catch(() => undefined) // makes sure the folder exists
     return shell.openPath(llm.configDir)

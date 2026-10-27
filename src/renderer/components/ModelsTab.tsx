@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { LlmModelInfo, LlmProviderInfo } from '../../shared/agent'
 import { useChat } from '../state/chat'
 import { Badges } from './Badges'
+import { ProviderForm } from './ProviderForm'
 
 interface Row {
   ref: string
@@ -52,6 +53,9 @@ export function ModelsTab() {
   const [shownOnly, setShownOnly] = useState(false)
   const [add, setAdd] = useState({ id: '', priceIn: '', priceOut: '', context: '' })
   const [addError, setAddError] = useState('')
+  /** The provider form: 'add', an edited provider's id, or closed. */
+  const [form, setForm] = useState<'add' | string | null>(null)
+  const [actionError, setActionError] = useState('')
 
   const providers = useMemo(() => (overview?.providers ?? []).filter((p) => p.kind !== 'mock'), [overview])
   const models = overview?.models
@@ -74,6 +78,10 @@ export function ModelsTab() {
     return [...out.values()].sort((a, b) => a.id.localeCompare(b.id))
   }, [current, models, catalog])
 
+  const run = (p: Promise<void>): void => {
+    setActionError('')
+    p.catch((e) => setActionError(msg(e)))
+  }
   if (!overview) return <div className="settings-tab" data-testid="settings-models"><div className="hint">Loading providers...</div></div>
   const chat = useChat.getState()
   const words = filter.toLowerCase().split(/\s+/).filter(Boolean)
@@ -121,13 +129,49 @@ export function ModelsTab() {
               title={p.available ? undefined : p.unavailableReason}
               data-testid={`models-provider-${p.id}`}
             >
-              <span>{p.id}</span>
+              <span>{p.name}</span>
               <span className="hint">{p.available ?`${(models ?? []).filter((m) => m.provider === p.id && m.shown).length} ticked` : shortReason(p)}</span>
             </button>
           ))}
+          <button onClick={() => setForm('add')} data-testid="models-add-provider">
+            Add provider
+          </button>
         </div>
-        {current ? (
+        {form !== null ? (
+          <ProviderForm
+            key={form}
+            edit={form === 'add' ? undefined : providers.find((p) => p.id === form)}
+            modelIds={form === 'add' ? [] : (models ?? []).filter((m) => m.provider === form && m.source === 'config').map((m) => m.id)}
+            onDone={(id) => {
+              setForm(null)
+              if (id) setProvider(id)
+            }}
+          />
+        ) : current ? (
           <div className="models-pane">
+            <div className="row-buttons">
+              <strong data-testid="models-provider-name">{current.name}</strong>
+              <span className="spacer" />
+              <button onClick={() => run(chat.setProviderEnabled(current.id, !current.enabled))} data-testid="models-toggle-provider">
+                {current.enabled ? 'Disable' : 'Enable'}
+              </button>
+              {current.custom && (
+                <>
+                  <button onClick={() => setForm(current.id)} data-testid="models-edit-provider">
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`Remove ${current.name}? Its key and ticked models are removed too.`)) run(chat.removeProvider(current.id).then(() => setProvider(null)))
+                    }}
+                    data-testid="models-remove-provider"
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
+            </div>
+            {actionError && <div className="error" data-testid="models-action-error">{actionError}</div>}
             <div className="row-buttons">
               <input type="text" value={filter} placeholder="Filter, e.g. qwen free" onChange={(e) => setFilter(e.target.value)} data-testid="models-filter" />
               {current.canList && (

@@ -43,7 +43,15 @@ export const LLM_IPC = {
   /** (refs: string[], shown: boolean) => LlmOverview. Ticks / unticks models of the chat dropdown (config/models.md). A refused tick sets `error`. */
   showModels: 'llm:showModels',
   /** (cmd: LlmAddModel) => LlmOverview. Adds a model by id to config/models.md; rejects when a non-local provider's prices are missing. */
-  addModel: 'llm:addModel'
+  addModel: 'llm:addModel',
+  /** (cmd: LlmSaveProvider) => LlmOverview. Adds or edits a custom OpenAI-compatible provider in providers.md and reloads; rejects with the reason. */
+  saveProvider: 'llm:saveProvider',
+  /** (providerId: string) => LlmOverview. Removes a custom provider, its stored key and its ticked models. */
+  removeProvider: 'llm:removeProvider',
+  /** (cmd: LlmTestProvider) => LlmTestResult. GET /models of an address, for the form's Test button. */
+  testProvider: 'llm:testProvider',
+  /** (providerId: string, enabled: boolean) => LlmOverview. Switches a provider (the seed `acp` too) on or off in providers.md. */
+  setProviderEnabled: 'llm:setProviderEnabled'
 } as const
 
 /** Prefix of the undo label of an agent turn (`Agent: <first words of the prompt>`). */
@@ -138,6 +146,13 @@ export type KeyStatus = 'none' | 'stored' | 'env'
 
 export interface LlmProviderInfo {
   id: string
+  /** Label: `name` of providers.md, else the id. */
+  name: string
+  /** Added in Settings (`custom: true`): it can be edited and removed there. */
+  custom: boolean
+  /** Parallel requests; 'auto' follows the server. */
+  concurrency: number | 'auto'
+  jsonSchema: boolean
   kind: string
   enabled: boolean
   local: boolean
@@ -206,5 +221,37 @@ export interface LlmOverview {
   /** True when it comes from Settings, false when from providers.md (`lmstudio_context`). */
   contextSizeSet: boolean
   /** Set when providers.md or roles.md could not be read. */
+  error?: string
+}
+
+/** The Add / Edit provider form of Settings > Models. */
+export interface LlmSaveProvider {
+  /** Set to edit that custom provider. */
+  id?: string
+  name: string
+  baseUrl: string
+  /** Stored in the credential store as CUSTOM_<ID>_API_KEY; empty on an edit keeps the stored key. */
+  apiKey?: string
+  /** Free / local: no key needed, no prices. */
+  free: boolean
+  jsonSchema: boolean
+  concurrency: number | 'auto'
+  discover: boolean
+  enabled: boolean
+  /** Model ids to list in providers.md. */
+  models: string[]
+}
+
+export interface LlmTestProvider {
+  baseUrl: string
+  apiKey?: string
+  /** Edit: use that provider's stored key when `apiKey` is empty. */
+  id?: string
+}
+
+export interface LlmTestResult {
+  ok: boolean
+  /** Models the address lists. */
+  count?: number
   error?: string
 }

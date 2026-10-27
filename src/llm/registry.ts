@@ -18,6 +18,10 @@ export { computeCost } from './pricing'
 
 export interface ProviderInfo {
   id: string
+  /** Label for the UI (`name` of providers.md), the id when missing. */
+  name: string
+  /** Added in the UI (`custom: true`). */
+  custom: boolean
   kind: ProviderEntry['kind']
   enabled: boolean
   local: boolean
@@ -167,6 +171,8 @@ export class ModelRegistry {
     for (const p of prov.data.providers) {
       const info: ProviderInfo = {
         id: p.id,
+        name: p.name ?? p.id,
+        custom: p.custom,
         kind: p.kind,
         enabled: p.enabled,
         local: p.local,

@@ -5,6 +5,12 @@ import { join } from 'node:path'
 import {
   createLlm,
   addModel,
+  OpenAiCompatClient,
+  checkBaseUrl,
+  editModelChoices,
+  removeCustomEntry,
+  saveCustomEntry,
+  setEntryEnabled,
   deleteStoredKey,
   getStoredKey,
   resolveKey,
@@ -16,7 +22,7 @@ import {
   type ModelRegistry,
   type ModelRouter
 } from '../llm'
-import type { KeyStatus, LlmAddModel, LlmCatalog, LlmModelInfo, LlmOverview, LlmProviderInfo } from '../shared/agent'
+import type { KeyStatus, LlmAddModel, LlmCatalog, LlmModelInfo, LlmOverview, LlmProviderInfo, LlmSaveProvider, LlmTestProvider, LlmTestResult } from '../shared/agent'
 import { CONTEXT_SIZE_MAX, CONTEXT_SIZE_MIN, readAppSettings, writeAppSettings } from './appSettings'
 import { defaultRoot } from './services'
 
@@ -51,6 +57,8 @@ export interface LlmServiceOptions {
   discover?: boolean
   /** Default `~/ChiptuneStudio`, shown read-only in Settings. */
   dataDir?: string
+  /** For tests: replaces `fetch` in the providers' clients. */
+  fetchImpl?: typeof fetch
 }
 
 export interface ResolvedModel {
@@ -109,7 +117,8 @@ export class LlmService {
         configDir: this.configDir,
         seedDir: this.opts.seedDir,
         keys: this.keys.resolve,
-        discover: this.opts.discover
+        discover: this.opts.discover,
+        fetchImpl: this.opts.fetchImpl
       })
         .then(async (l) => {
           l.registry.setContextSize((await readAppSettings(this.configDir)).contextSize)
@@ -148,6 +157,10 @@ export class LlmService {
     const { registry, router } = loaded
     const providers: LlmProviderInfo[] = [...registry.providers.values()].map((p) => ({
       id: p.id,
+      name: p.name,
+      custom: p.custom,
+      concurrency: p.concurrencyAuto ? ('auto' as const) : p.concurrency,
+      jsonSchema: p.jsonSchema,
       kind: p.kind,
       enabled: p.enabled,
       local: p.local,
@@ -284,6 +297,67 @@ export class LlmService {
     const { registry } = await this.get()
     await addModel(registry, cmd)
     return this.afterEdit()
+  }
+
+  private providersFile(): string {
+    return join(this.configDir, 'providers.md')
+  }
+
+  /**
+   * Adds a custom OpenAI-compatible provider to providers.md, or edits the one named by `cmd.id`, stores its key (an empty key on an edit keeps
+   * the stored one) and reloads the registry, so it works without a restart. Rejects with the reason (bad URL, reserved id ...).
+   */
+  async saveProvider(cmd: LlmSaveProvider): Promise<LlmOverview> {
+    const { registry } = await this.get()
+    const apiKey = cmd.apiKey?.trim() || undefined
+    const r = await saveCustomEntry(this.providersFile(), { ...cmd, withKey: !!apiKey })
+    if (apiKey) this.keys.set(r.apiKeyEnv, apiKey)
+    await registry.load()
+    if (this.opts.discover !== false) {
+      await registry.discover().catch(() => undefined)
+      await registry.syncServerSlots().catch(() => undefined)
+    }
+    return this.overview()
+  }
+
+  /** Removes a custom provider: its providers.md entry, its stored key and its refs in models.md. Rejects for a seed provider. */
+  async removeProvider(id: string): Promise<LlmOverview> {
+    const { registry } = await this.get()
+    const { apiKeyEnv } = await removeCustomEntry(this.providersFile(), id)
+    this.keys.delete(apiKeyEnv)
+    await editModelChoices(this.configDir, (c) => {
+      for (const ref of [...c.shown]) if (ref.startsWith(`${id}/`)) c.shown.delete(ref)
+      c.picked = c.picked.filter((m) => m.provider !== id)
+    })
+    await registry.load()
+    return this.overview()
+  }
+
+  /** Switches a provider on or off (the seed `acp` is off until then) and reloads. */
+  async setProviderEnabled(id: string, enabled: boolean): Promise<LlmOverview> {
+    const { registry } = await this.get()
+    await setEntryEnabled(this.providersFile(), id, enabled)
+    await registry.load()
+    if (enabled && this.opts.discover !== false) {
+      await registry.discover().catch(() => undefined)
+      await registry.syncServerSlots().catch(() => undefined)
+    }
+    return this.overview()
+  }
+
+  /** `GET /models` of an address with the given key (or the stored key of provider `cmd.id`): the form's Test button. Never throws. */
+  async testProvider(cmd: LlmTestProvider): Promise<LlmTestResult> {
+    try {
+      const baseUrl = checkBaseUrl(cmd.baseUrl)
+      const { registry } = await this.get()
+      const env = cmd.id ? registry.providers.get(cmd.id)?.apiKeyEnv : undefined
+      const apiKey = cmd.apiKey?.trim() || (env ? this.keys.resolve(env) : undefined)
+      const client = new OpenAiCompatClient({ id: 'test', baseUrl, apiKey, fetchImpl: this.opts.fetchImpl })
+      return { ok: true, count: (await client.listModelInfo()).length }
+    } catch (err) {
+      const e = err as Error & { cause?: { code?: string } }
+      return { ok: false, error: e.message === 'fetch failed' ? `network error${e.cause?.code ? ` (${e.cause.code})` : ''}` : e.message }
+    }
   }
 
   /** Re-reads the config files (models.md changed), keeping what discovery found. */

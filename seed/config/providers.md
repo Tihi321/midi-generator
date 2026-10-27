@@ -102,6 +102,16 @@ providers:
         price_out: 15
         tools: true
         vision: true
+  - id: acp
+    name: ACP proxy
+    kind: openai-compat
+    enabled: false                # switch on in Settings > Models (or here) when the proxy runs
+    local: true
+    base_url: http://127.0.0.1:7461/v1
+    concurrency: 2
+    discover: true                # ids look like codex/gpt-5.6-luna, antigravity/gemini-3.8-flash
+    json_schema: false            # the proxy does not constrain a structured answer
+    models: []
   - id: ollama
     kind: openai-compat
     enabled: false                # switch on if you run Ollama
@@ -199,9 +209,17 @@ One entry per provider. Edit this file in `~/ChiptuneStudio/config/` and Chiptun
 
 A model is written `provider/model`, for example `lmstudio/google/gemma-4-e4b`. Prices are USD per 1M tokens and only used for the cost shown in the chat (there is no budget). The OpenRouter, OpenAI, Anthropic and Gemini entries are examples marked "to verify": model ids and prices there may be out of date. The Anthropic 5.5 models have no prices here (the cost shows as 0 until you add `price_in`, `price_out` and `price_cached_in`). The DeepSeek ones come from scriptorium's config (peak prices); DeepSeek rejects `response_format: json_schema`, so it has `json_schema: false`, and `deepseek-v4-pro` thinks before it answers (its reasoning is sent back with tool calls, which DeepSeek requires).
 
+## ACP proxy
+
+`acp` is the ACP proxy (an OpenAI-compatible API over your Codex / Antigravity / Claude subscriptions, `http://127.0.0.1:7461/v1`). It is off by default: turn it on in Settings > Models, then Detect models and tick the ones you want (ids look like `codex/gpt-5.6-luna`). Start the proxy with `PROXY_IGNORE_SAMPLING=1`, because the agent sends `temperature`, `max_tokens` and `stream_options`. It is text only (no vision). Models of a local provider default to `tools: false` (JSON-action mode); list a model here with `tools: true` to use native tool calling. `PROXY_TIMEOUT_MS` (default 5 minutes) must cover long requests. Using a subscription through a proxy may be against its terms (Antigravity especially): your call.
+
+## Your own providers
+
+Settings > Models > Add provider adds any OpenAI-compatible server (name, base URL, API key, parallel requests, JSON schema, discover, model ids) as an entry with `custom: true` and a `name`. The app edits and removes only those entries; the keys go to the credential store as `CUSTOM_<ID>_API_KEY`. The ids of the seed providers (`acp`, `openai`, `deepseek`, ...) cannot be used. `config/seed-state.json` records which seed providers were already offered, so a new seed provider (like `acp`) is added to an existing providers.md once and a deleted one does not come back.
+
 ## Fields of a provider
 
-- `id`: the name used in model references.
+- `id`: the name used in model references. `name`: optional label shown in the UI. `custom`: `true` for providers added in the UI.
 - `kind`: `openai-compat` (any OpenAI-style API: LM Studio, Strata, DeepSeek, OpenRouter, Ollama, OpenAI), `anthropic`, `gemini`, or `mock` (scripted, for tests).
 - `enabled`: `false` switches the provider off. A provider whose key can't be found is skipped automatically.
 - `local`: `true` for models on this machine. Local models cost nothing. Models of a local provider default to `tools: false`.
