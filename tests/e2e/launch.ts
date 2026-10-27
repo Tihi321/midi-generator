@@ -2,7 +2,7 @@
 // user-data dir and a free MCP port, so a test run never touches ~/ChiptuneStudio or collides with a running app.
 
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { cp, mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
@@ -30,11 +30,13 @@ export interface LaunchedApp {
   close: () => Promise<void>
 }
 
-export async function launchApp(): Promise<LaunchedApp> {
+export async function launchApp(opts: { configFrom?: string } = {}): Promise<LaunchedApp> {
   const base = await mkdtemp(path.join(os.tmpdir(), 'chiptune-studio-e2e-'))
   const home = path.join(base, 'ChiptuneStudio')
   const userData = path.join(base, 'user-data')
   const mcpPort = await freePort()
+  // A copy of an existing config folder (the app then migrates it like a real update); the original is never touched.
+  if (opts.configFrom) await cp(opts.configFrom, path.join(home, 'config'), { recursive: true })
   const app = await electron.launch({
     args: [path.join(projectRoot, 'out/main/index.js'), `--user-data-dir=${userData}`],
     cwd: projectRoot,

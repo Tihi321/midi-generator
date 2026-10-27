@@ -30,7 +30,7 @@ export interface JsonResult<T> {
 
 /**
  * Asks for JSON. Passes the schema to providers that support it. If the reply doesn't parse or validate,
- * asks once more with the error (a repair retry). If the provider rejects the schema, tries again without it.
+ * asks again with the error (up to two repair retries). If the provider rejects the schema, tries again without it.
  * `chat` is any model call, for example `router.chatFn({ role })`.
  */
 export async function chatJson<T>(
@@ -63,16 +63,21 @@ export async function chatJson<T>(
   }
   let parsed = tryParse(reply.text)
   if (parsed.ok) return { value: parsed.value, chat: reply, cost }
-  const repair: ChatMessage[] = [
-    ...messages,
-    { role: 'assistant', content: reply.text.slice(0, 6000) },
-    {
-      role: 'user',
-      content: `Your reply could not be used: ${parsed.error}.\nReply again with only one valid JSON object that matches the requested format. No explanations, no code fences.`
-    }
-  ]
-  const second = await ask(repair, false)
-  parsed = tryParse(second.text)
-  if (parsed.ok) return { value: parsed.value, chat: second, cost }
-  throw new Error(`the model did not return valid JSON twice: ${parsed.error}`)
+  // Up to two repair retries: a long melody string sometimes breaks the JSON twice in a row (seen on the ACP proxy, MDI-08).
+  let last = reply
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const repair: ChatMessage[] = [
+      ...messages,
+      { role: 'assistant', content: last.text.slice(0, 6000) },
+      {
+        role: 'user',
+        content: `Your reply could not be used: ${parsed.error}.
+Reply again with only one valid JSON object that matches the requested format. Escape quotes and newlines inside strings. No explanations, no code fences.`
+      }
+    ]
+    last = await ask(repair, false)
+    parsed = tryParse(last.text)
+    if (parsed.ok) return { value: parsed.value, chat: last, cost }
+  }
+  throw new Error(`the model did not return valid JSON after two repair attempts: ${parsed.error}`)
 }

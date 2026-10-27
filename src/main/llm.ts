@@ -329,6 +329,9 @@ export class LlmService {
       for (const ref of [...c.shown]) if (ref.startsWith(`${id}/`)) c.shown.delete(ref)
       c.picked = c.picked.filter((m) => m.provider !== id)
     })
+    // the chat must not stay on a model that no longer exists
+    const sel = await this.selectedModel()
+    if (sel?.startsWith(`${id}/`)) await writeAppSettings(this.configDir, { selectedModel: null })
     await registry.load()
     return this.overview()
   }

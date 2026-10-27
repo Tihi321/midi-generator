@@ -306,6 +306,21 @@ describe('agent loop, JSON-action fallback', () => {
     expect(events.filter((e) => e.type === 'text')).toEqual([{ type: 'text', text: 'ok' }])
   })
 
+  it('repairs a broken reply twice before giving up, and tells the model its JSON actions are not host tool calls (MDI-08)', async () => {
+    const mock = new MockProvider('mock', { chunkDelayMs: 1 })
+    mock.script(['{"say": "a" "b"}', '{"say": broken', '{"say":"ok","actions":[],"done":true}'])
+    const res = await runAgent({ chat: mockChat(mock), ...json, system: 's', userMessage: 'go', host: makeHost().host })
+    expect(res.reason).toBe('completed')
+    expect(mock.requests).toHaveLength(3)
+    expect(text(mock.requests[0]!.messages[0]!)).toMatch(/run by this application, not by your own host/)
+    const bad = new MockProvider('mock', { chunkDelayMs: 1 })
+    bad.onAny('not json at all')
+    const res2 = await runAgent({ chat: mockChat(bad), ...json, system: 's', userMessage: 'go', host: makeHost().host })
+    expect(res2.reason).toBe('error')
+    expect(res2.error?.message).toMatch(/after two repair attempts/)
+    expect(bad.requests).toHaveLength(3)
+  })
+
   it('stops at maxSteps and on abort; vision models get images as image parts', async () => {
     const mock = new MockProvider('mock', { chunkDelayMs: 1 })
     mock.onAny(reply({ actions: [{ tool: 'preview', args: {} }], done: false }))
