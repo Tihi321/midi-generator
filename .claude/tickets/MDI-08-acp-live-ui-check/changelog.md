@@ -17,3 +17,5 @@ Branch `MDI-08_acp-live-ui-check` (master). Committed (e403948, 7c73e6e, and the
 JSON-action mode (tools false, the seed default): 6/6 (codex luna 3/3, 4-5 tool calls, 6-11 s; gemini flash 3/3, 32-45 s). Native tools (acp models listed with tools: true in a temp config copy): 5/6 (codex 2/3, the failure: two write_melody calls rejected as too long, the model gave up; gemini 3/3, 36-77 s, slower). Not clearly better, so the seed keeps tools false. Spec: ACP_REPEAT=N, ACP_TOOLS=1.
 
 - Refusal nudge (parity with Pixel Studio PAR-15): a JSON-mode model that answers its first reply with an explicit refusal ("can't use tools", "disallows tool calls", "text-only") and no action gets up to two nudges, only before any action ran (`NO_TOOLS_REFUSAL` in `src/llm/agent.ts`).
+
+- Parity with Pixel Studio PAR-15 6d2a171: final `NO_TOOLS_REFUSAL` regex. New guard (Pixel has no commit for it yet; names `MAX_ERROR_NUDGES`, `errorNudges`, `lastError`): when the model ends the turn (no actions, or done: true) while the last action failed and no later action succeeded, it is sent back with the error, at most 2 per run.
