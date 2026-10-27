@@ -40,3 +40,6 @@ export type {
 } from './agent'
 export { createLlm } from './setup'
 export type { CreateLlmOptions } from './setup'
+export { RESERVED_PROVIDER_IDS, checkBaseUrl, customKeyName, customProviderSlug, removeCustomEntry, saveCustomEntry, setEntryEnabled } from './customProviders'
+export type { CustomProviderInput } from './customProviders'
+export { MIGRATED_SEED_PROVIDERS, SEED_STATE_FILE, migrateSeedProviders } from './seedMigrate'

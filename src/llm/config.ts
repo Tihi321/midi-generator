@@ -30,6 +30,10 @@ export const providerModelSchema = z.looseObject({
 
 export const providerEntrySchema = z.looseObject({
   id: z.string().min(1),
+  /** Label shown in the UI (custom providers); the id when missing. */
+  name: z.string().optional(),
+  /** Added from Settings > Models > Add provider: the app may edit and remove it. */
+  custom: z.boolean().default(false),
   kind: z.enum(['openai-compat', 'anthropic', 'gemini', 'mock']),
   enabled: z.boolean().default(true),
   local: z.boolean().default(false),

@@ -2,7 +2,7 @@
 // of the last agent turn. The conversation itself lives in main; this is only the view of it.
 
 import { create } from 'zustand'
-import type { ChatSummary, LlmAddModel, LlmCatalog, LlmOverview } from '../../shared/agent'
+import type { ChatSummary, LlmAddModel, LlmCatalog, LlmOverview, LlmSaveProvider } from '../../shared/agent'
 import { agentApi, llmApi } from '../lib/agentApi'
 import { session } from './session'
 import { type ChatState, type TurnUndoInfo, addError, applyEvent, initialChat, replayChat, resetChat } from './chatReducer'
@@ -36,6 +36,11 @@ export interface ChatStore extends ChatState {
   showModels: (refs: string[], shown: boolean) => Promise<void>
   /** Adds a model by id; rejects with the reason when the command is invalid. */
   addModel: (cmd: LlmAddModel) => Promise<void>
+  /** Adds or edits a custom provider; rejects with the reason. */
+  saveProvider: (cmd: LlmSaveProvider) => Promise<void>
+  /** Removes a custom provider; rejects with the reason. */
+  removeProvider: (id: string) => Promise<void>
+  setProviderEnabled: (id: string, enabled: boolean) => Promise<void>
   send: (text: string) => Promise<void>
   stop: () => Promise<void>
   newChat: () => Promise<void>
@@ -108,6 +113,22 @@ export const useChat = create<ChatStore>((set, get) => ({
 
   async addModel(cmd) {
     get().setOverview(await llmApi.addModel(cmd))
+  },
+
+  async saveProvider(cmd) {
+    get().setOverview(await llmApi.saveProvider(cmd))
+  },
+
+  async removeProvider(id) {
+    get().setOverview(await llmApi.removeProvider(id))
+    set((s) => {
+      const { [id]: _gone, ...catalogs } = s.catalogs
+      return { catalogs }
+    })
+  },
+
+  async setProviderEnabled(id, enabled) {
+    get().setOverview(await llmApi.setProviderEnabled(id, enabled))
   },
 
   async send(text) {

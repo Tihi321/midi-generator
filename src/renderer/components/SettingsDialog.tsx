@@ -126,7 +126,7 @@ function ProvidersTab() {
       {overview?.providers.map((p) => (
         <div className="provider-card" key={p.id} data-testid={`provider-${p.id}`}>
           <div className="provider-head">
-            <strong>{p.id}</strong>
+            <strong>{p.name}</strong>
             <span className="badge">{p.kind}</span>
             <span className="badge">{p.local ? 'local' : 'remote'}</span>
             <span className={`badge ${p.available ? 'on' : 'off'}`}>{p.available ? 'available' : 'unavailable'}</span>
