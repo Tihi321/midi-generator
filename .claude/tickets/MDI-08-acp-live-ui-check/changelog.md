@@ -12,3 +12,6 @@ Branch `MDI-08_acp-live-ui-check` (master). Uncommitted until the commit that ca
 - Tests: tests/llm/customProviders.test.ts (migration order/CRLF, lock, selection reset), tests/llm/agent.test.ts (repairs).
 - Verification: see final report; the live spec passed 4/4 (a, b, c on both models). The real `~/ChiptuneStudio/config` is never written (the app runs on a copy); backup `config.bak-mdi08` diffs identical.
 - Not verified: agent runs are nondeterministic (one codex run made 8 tool calls and wrote no notes before the fixes); playing the result by ear; the old Pixel-style `seed-state` legacy ids path.
+
+## Reliability (same day)
+JSON-action mode (tools false, the seed default): 6/6 (codex luna 3/3, 4-5 tool calls, 6-11 s; gemini flash 3/3, 32-45 s). Native tools (acp models listed with tools: true in a temp config copy): 5/6 (codex 2/3, the failure: two write_melody calls rejected as too long, the model gave up; gemini 3/3, 36-77 s, slower). Not clearly better, so the seed keeps tools false. Spec: ACP_REPEAT=N, ACP_TOOLS=1.

@@ -3,7 +3,7 @@
 // The app gets an isolated data folder holding a COPY of ~/ChiptuneStudio/config, so the real config is never written.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { cp, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { type LaunchedApp, launchApp, projectRoot } from './launch'
@@ -32,7 +32,24 @@ test.beforeAll(async () => {
   const ids = ((await r.json()) as { data: { id: string }[] }).data.map((m) => m.id)
   expect(ids.length).toBeGreaterThan(0)
   expect(ids.filter((i) => !i.includes('/')), 'the proxy still lists unprefixed ids').toEqual([])
-  launched = await launchApp({ configFrom: path.join(os.homedir(), 'ChiptuneStudio', 'config') })
+  let configFrom = path.join(os.homedir(), 'ChiptuneStudio', 'config')
+  if (process.env.ACP_TOOLS === '1') {
+    // a temporary copy whose acp models are listed with tools: true: the agent then uses native tool calls instead of JSON actions
+    const copy = path.join(await mkdtemp(path.join(os.tmpdir(), 'acp-tools-')), 'config')
+    await cp(configFrom, copy, { recursive: true })
+    const file = path.join(copy, 'providers.md')
+    const text = await readFile(file, 'utf8')
+    const at = text.indexOf('- id: acp')
+    const m = /models: \[\]/.exec(text.slice(at))
+    expect(m, 'acp entry with an empty models list').not.toBeNull()
+    const list = RUNS.map((r) => `
+      - id: ${r.ref.slice(4)}
+        family: unknown
+        tools: true`).join('')
+    await writeFile(file, text.slice(0, at + m!.index) + 'models:' + list + text.slice(at + m!.index + m![0].length))
+    configFrom = copy
+  }
+  launched = await launchApp({ configFrom })
   page = launched.page
   page.on('dialog', (d) => void d.accept())
   await expect.poll(() => page.evaluate<boolean>('!!window.__chiptuneStudio'), { timeout: 30000 }).toBe(true)
@@ -123,29 +140,47 @@ test('b) add a custom provider through the form, test, detect, remove: the chat 
   lap('b) custom provider add/test/detect/remove', t0)
 })
 
-for (const run of RUNS) {
-  test(`c) agent run on ${run.ref}`, async () => {
-    test.setTimeout(run.timeout + 60_000)
-    const t0 = Date.now()
-    await page.getByTestId('tab-chat').click()
-    await page.getByTestId('chat-new').click()
-    await page.getByTestId('chat-model').selectOption(run.ref)
-    const before = await notes()
-    await page.getByTestId('chat-input').fill(TASK)
-    await page.getByTestId('chat-send').click()
-    await expect(page.getByTestId('chat-stop')).toBeVisible({ timeout: 30000 })
-    await expect(page.getByTestId('chat-send')).toBeVisible({ timeout: run.timeout })
-    const err = await page.getByTestId('chat-error').allTextContents()
-    const tools = await page.getByTestId('tool-card').count()
-    const reply = (await page.getByTestId('chat-assistant').allTextContents()).join('\n').slice(0, 400)
-    const cards = await page.getByTestId('tool-card').evaluateAll((els) => els.map((e) => `${e.className}: ${(e.textContent ?? '').slice(0, 300)}`))
-    console.log(`TOOLS ${cards.join(' || ')}`)
-    console.log(`RUN ${run.ref}: tool cards ${tools}, notes before ${before.length}, notes after ${(await notes()).length}, reply: ${reply}`)
-    expect(err, `agent errors: ${err.join(' | ')}`).toEqual([])
-    expect(tools).toBeGreaterThan(0)
-    const after = await notes()
-    expect(after.length).toBeGreaterThan(0)
-    expect(after).not.toEqual(before)
-    lap(`c) agent ${run.ref} (${tools} tool calls)`, t0)
-  })
-}
+// Reliability: ACP_REPEAT runs per model (default 1), each on a fresh song (the previous run is undone). Failures are collected with their
+// cause and reported together, so one bad run does not hide the others. ACP_TOOLS=1 gives the acp models `tools: true` (native tool calls).
+const REPEAT = Number(process.env.ACP_REPEAT ?? 1)
+test('c) agent runs', async () => {
+  test.setTimeout((RUNS[0]!.timeout + 60_000) * RUNS.length * REPEAT)
+  await page.getByTestId('tab-chat').click()
+  const results: string[] = []
+  for (const run of RUNS) {
+    for (let i = 1; i <= REPEAT; i++) {
+      const t0 = Date.now()
+      let cause = ''
+      let tools = 0
+      let errored = 0
+      try {
+        await page.evaluate('(() => { const s = window.__chiptuneStudio.session; while (s.canUndo()) s.undo() })()')
+        await page.getByTestId('chat-new').click()
+        await page.getByTestId('chat-model').selectOption(run.ref)
+        expect(await notes()).toEqual([])
+        await page.getByTestId('chat-input').fill(TASK)
+        await page.getByTestId('chat-send').click()
+        await expect(page.getByTestId('chat-stop')).toBeVisible({ timeout: 30000 })
+        await expect(page.getByTestId('chat-send')).toBeVisible({ timeout: run.timeout })
+        const err = await page.getByTestId('chat-error').allTextContents()
+        tools = await page.getByTestId('tool-card').count()
+        errored = await page.locator('[data-testid=tool-card].error').count()
+        const reply = (await page.getByTestId('chat-assistant').allTextContents()).join(' ').slice(0, 200)
+        const names = await page.getByTestId('tool-card').locator('.tool-title').allTextContents()
+        const n = (await notes()).length
+        if (err.length) cause = `error: ${err.join(' | ')}`
+        else if (tools === 0) cause = `no tool call, reply: ${reply}`
+        else if (n === 0) cause = `${tools} tool calls (${names.join(',')}, ${errored} errored) but no notes, reply: ${reply}`
+        console.log(`RUN ${run.ref} #${i}: ${tools} tool cards (${names.join(',')}), ${errored} errored, ${n} notes`)
+      } catch (e) {
+        cause = `exception: ${(e as Error).message.split('\n')[0]}`
+      }
+      const secs = ((Date.now() - t0) / 1000).toFixed(1)
+      results.push(`${run.ref} #${i}: ${cause ? `FAIL (${cause})` : 'PASS'} ${tools} tool calls, ${secs}s`)
+      timings.push(results.at(-1)!)
+      if (cause.startsWith('exception')) await page.getByTestId('chat-stop').click({ timeout: 2000 }).catch(() => undefined)
+    }
+  }
+  console.log(`ACP RESULTS${process.env.ACP_TOOLS === '1' ? ' (native tools)' : ' (json actions)'}\n${results.join('\n')}`)
+  expect(results.filter((r) => r.includes('FAIL')), results.join('\n')).toEqual([])
+})
