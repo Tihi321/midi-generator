@@ -146,7 +146,7 @@ export function TrackerView() {
         {song.channels.map((ch, c) => {
           const p = formatCellParts(pats[c]?.rows[r] ?? null, ch.fxColumns)
           return (
-            <span className="tcell" key={c}>
+            <span className="tcell" key={c} style={{ width: `${layout.channels[c]!.widthCh}ch` }}>
               {' '}
               <span className={`n${dimClass(p.note)}`} style={dimClass(p.note) ? undefined : { color: channelColor(c) }}>
                 {p.note}
