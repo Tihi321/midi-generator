@@ -1,33 +1,33 @@
 // Dreamcast preset bank. Phase B0 baseline: one preset per SNES preset (same recipe slots, so the same sounds), with the
 // SNES envelope mapped to AICA AEG values by `snesToAicaAeg` and SNES echo becoming a DSP send. Ids are
-// `dreamcast.<role>.<name>` (the SNES id with its prefix swapped). All baseline presets use pcm16. Phase C tunes the
-// mapper by ear; Phase D1 appends the synthwave presets of the preset-id contract.
+// `dreamcast.<role>.<name>` (the SNES id with its prefix swapped). All baseline presets use pcm16. Phase D1 appends the
+// synthwave presets of the preset-id contract.
 //
-// AICA AEG rates run 0..31 (0 = no change, 31 = fastest). The times below are an APPROXIMATION of the documented rate
-// table (attack from silence to full about 8.1 s at rate 1, halving every 2 rates; decay/release 96 dB in about
-// 118 s at rate 1, halving every 4 rates, linear in dB); Phase C replaces `aicaAttackSeconds` / `aicaFallSeconds`
-// with the documented table.
+// AICA AEG rates run 0..31 (0 = no change, 31 = fastest) and are doubled into the documented 6-bit rate tables (see
+// synth/chips/aicaTables.ts): attack from silence to full takes 8.1 s at 6-bit rate 2 and a 96 dB decay or release
+// takes 118.2 s, both halving every four 6-bit rates, i.e. every two register steps.
 
 import type { AicaAeg, AicaSampleInstrument, SnesEnvelope, SnesSampleInstrument } from '../../types'
+import { aicaAttackTime6, aicaFallTime6, aicaRate6 } from '../../synth/chips/aicaTables'
 import type { Preset } from './types'
 import { SNES_PRESETS } from './snes'
 import { snesEnvTimes } from './snesTimes'
 
 const clampInt = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, Math.round(v)))
 
-/** Seconds from silence to full level for an attack rate 1..31 (approximate). */
+/** Seconds from silence to full level for an AEG attack rate 0..31 (the documented table; 31 is instant, 0 never). */
 export function aicaAttackSeconds(rate: number): number {
-  return 8.1 * 2 ** (-(rate - 1) / 2)
+  return rate <= 0 ? Infinity : aicaAttackTime6(aicaRate6(rate))
 }
-/** Seconds for a 96 dB fall at a decay/release rate 1..31 (approximate). */
+/** Seconds for a 96 dB fall at an AEG decay / release rate 0..31 (the documented table; 0 never). */
 export function aicaFallSeconds(rate: number): number {
-  return 118.2 * 2 ** (-(rate - 1) / 4)
+  return rate <= 0 ? Infinity : aicaFallTime6(aicaRate6(rate))
 }
 
 function nearestRate(target: number, seconds: (rate: number) => number): number {
   let best = 1
   let bestErr = Infinity
-  for (let r = 1; r <= 31; r++) {
+  for (let r = 1; r <= 30; r++) {
     const err = Math.abs(Math.log(seconds(r) / target))
     if (err < bestErr) {
       bestErr = err

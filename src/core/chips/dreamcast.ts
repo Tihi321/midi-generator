@@ -2,17 +2,18 @@
 // envelope per slot, an LFO for pitch and amplitude, a resonant low-pass with its own envelope, 2 MB of sound RAM and
 // a DSP modelled as reverb / chorus / delay presets (the real microcode is not emulated).
 //
-// Phase B0 scaffolding: the profile, the config and the validation hooks exist; Phase C fills in the AICA RAM budget
-// (`dreamcastRamIssues`), the channel rules (`dreamcastInstrumentOnChannel`) and any extra instrument checks
-// (`dreamcastInstrumentRule`).
+// The AICA RAM budget (`dreamcastRamIssues`, `dreamcastRamUsage`) counts every used sample once per format (pcm16 2 bytes,
+// pcm8 1 byte, adpcm 0.5 byte per sample, after the format's own pipeline) plus the DSP ring buffer of the preset.
 
 import type { ChipConfig, DreamcastConfig, Instrument, Song } from '../types'
 import { DC_DSP_PRESETS, DC_VOICE_COUNTS } from '../types'
+import { instSampleId } from '../instruments/types'
 import { registerInstrumentRule } from '../instruments/validate'
-import '../synth/samplegen/aicaAdpcm' // registers the 'aica16' / 'aica8' / 'aica-adpcm' sample targets used by the RAM budget
+import { type AicaFormat, aicaByteSize, aicaTargetFor } from '../synth/samplegen/aicaAdpcm' // also registers the 'aica16' / 'aica8' / 'aica-adpcm' sample targets
+import { dspRamBytes } from '../synth/chips/aicaDsp'
 import { assertVoiceCount, sampleVoiceChannels } from './sampleVoices'
 import type { ChannelDef, InstrumentOnChannelRule, Issue, ValidateScope } from './types'
-import { defineProfile } from './validate'
+import { defineProfile, estimateSampleLength } from './validate'
 
 /** Voices of a config (16, 32 or 64); throws for anything else. */
 export function dreamcastVoices(cfg: ChipConfig): number {
@@ -53,15 +54,67 @@ function dreamcastConfigIssues(song: Song): Issue[] {
   return out
 }
 
-/** AICA RAM budget (samples by format + the DSP ring buffer against 2 MB). Phase C. */
-function dreamcastRamIssues(_song: Song, _scope: ValidateScope, _rule: 'error' | 'warning'): Issue[] {
+/** Total AICA sound RAM. */
+export const AICA_RAM_BYTES = 2 * 1024 * 1024
+
+export interface AicaRamUsage {
+  /** Sample bytes by format (a sample used by instruments of two formats is stored twice). */
+  sampleBytes: number
+  /** The DSP ring buffer of the song's preset. */
+  dspBytes: number
+  total: number
+  budget: number
+  samples: { id: string; format: AicaFormat; length: number; bytes: number }[]
+}
+
+/** AICA RAM usage: the samples the instruments use (by format) plus the DSP ring buffer. */
+export function aicaRamUsage(song: Song): AicaRamUsage {
+  const used = new Map<string, { id: string; format: AicaFormat }>()
+  for (const inst of song.instruments as Instrument[]) {
+    if (inst.kind !== 'aica-sample') continue
+    const id = instSampleId(inst)
+    if (id !== undefined) used.set(`${inst.format}|${id}`, { id, format: inst.format })
+  }
+  const samples: AicaRamUsage['samples'] = []
+  for (const { id, format } of used.values()) {
+    const slot = song.samples.find((s) => s.id === id)
+    if (!slot) continue
+    // the SNES-pipeline sizes of ValidateScope.sampleSizes do not apply: each format has its own pipeline
+    const length = estimateSampleLength(slot, undefined, aicaTargetFor(format))
+    samples.push({ id, format, length, bytes: aicaByteSize(format, length) })
+  }
+  const sampleBytes = samples.reduce((a, s) => a + s.bytes, 0)
+  const cfg = song.chipConfig
+  const dspBytes = cfg.chip === 'dreamcast' && cfg.dsp && (DC_DSP_PRESETS as readonly string[]).includes(cfg.dsp.preset) ? dspRamBytes(cfg.dsp) : 0
+  return { sampleBytes, dspBytes, total: sampleBytes + dspBytes, budget: AICA_RAM_BYTES, samples }
+}
+
+const kb = (bytes: number): string => `${Math.round(bytes / 1024)} KB`
+
+/** AICA RAM budget: an error over 2 MB (with the fixes), a warning above 85%. */
+function dreamcastRamIssues(song: Song, _scope: ValidateScope, rule: 'error' | 'warning'): Issue[] {
+  const u = aicaRamUsage(song)
+  const parts = `samples ${kb(u.sampleBytes)} + DSP ${kb(u.dspBytes)}`
+  if (u.total > u.budget) {
+    const fixes: string[] = []
+    if (u.dspBytes > 0) fixes.push(`switch the DSP preset to "off" or "chorus" (saves up to ${kb(u.dspBytes)})`)
+    const pcm = [...u.samples].filter((s) => s.format !== 'adpcm').sort((a, b) => b.bytes - a.bytes)[0]
+    if (pcm) fixes.push(`set the largest ${pcm.format} sample "${pcm.id}" (~${kb(pcm.bytes)}) to format "adpcm" (a quarter of pcm16)`)
+    const biggest = [...u.samples].sort((a, b) => b.bytes - a.bytes)[0]
+    if (biggest && biggest !== pcm) fixes.push(`shorten "${biggest.id}" (~${kb(biggest.bytes)})`)
+    if (fixes.length === 0) fixes.push('shorten or remove samples')
+    return [{ severity: rule, message: `Dreamcast AICA RAM budget exceeded: ~${kb(u.total)} of ${kb(u.budget)} (${parts}), ${kb(u.total - u.budget)} over; ${fixes.join('; ')}.` }]
+  }
+  if (u.total > u.budget * 0.85) {
+    return [{ severity: 'warning', message: `Dreamcast AICA RAM is nearly full: ~${kb(u.total)} of ${kb(u.budget)} (${parts}).` }]
+  }
   return []
 }
 
-/** Channel rules of a Dreamcast instrument. Phase C. */
+/** Channel rules of a Dreamcast instrument: none (every slot plays any aica-sample). */
 const dreamcastInstrumentOnChannel: InstrumentOnChannelRule = (_song: Song, _def: ChannelDef, _inst: Instrument, _instIndex: number) => []
 
-/** Extra checks of an aica-sample instrument beyond the shared range checks. Phase C. */
+/** Extra checks of an aica-sample instrument beyond the shared range checks: none yet. */
 function dreamcastInstrumentRule(_inst: Instrument): string[] {
   return []
 }
