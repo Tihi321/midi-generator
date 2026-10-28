@@ -103,7 +103,7 @@ type ActionReply = z.output<typeof actionSchema>
  * A model that answers its first JSON reply with an explicit refusal ("I can't use tools", "this request disallows tool calls", "text-only")
  * instead of calling a tool: some proxied coding agents do now and then (ACP proxy, MDI-08). Not "no tool needed".
  */
-export const NO_TOOLS_REFUSAL = /text-only|(?:can(?:'|’)?t|cannot|unable to|not able to|won(?:'|’)?t be able to)\s+(?:\w+\s+){0,4}(?:use|call|run|invoke)\s+(?:\w+\s+)?tools?|(?:disallow|forbid|prohibit)\w*\s+(?:\w+\s+)?tool|without\s+(?:using\s+)?tools?|tool calls? (?:are|is) (?:not allowed|disabled|unavailable)/i
+export const NO_TOOLS_REFUSAL = /text-only|(?:can(?:'|’)?t|cannot|unable to|not able to|won(?:'|’)?t be able to)\s+(?:\w+\s+){0,4}(?:use|call|run|invoke)\s+(?:\w+\s+)?tools?|(?:disallow|forbid|prohibit)\w*\s+(?:\w+\s+)?tool|without\s+(?:using\s+)?tools?|tool calls? (?:are|is) (?:not allowed|disabled|unavailable)|tool (?:use|access) (?:was|is|has been) (?:[a-z]+ )?(?:disabled|unavailable|not allowed)|not to use (?:any )?tools/i
 
 /** How often one run may send the model back to fix a failed last action before it is allowed to end the turn. */
 export const MAX_ERROR_NUDGES = 2
@@ -339,7 +339,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       return finish('error', err instanceof Error ? err : new Error(String(err)))
     }
     convo.push({ role: 'assistant', content: JSON.stringify(reply) })
-    if (!reply.actions.length && !ranAction && nudges < 2 && tools.length && NO_TOOLS_REFUSAL.test(reply.say ?? '')) {
+    // no mutating action yet (with a result check; else no action at all): a read-only get_song followed by a refusal is still a refusal
+    if (!reply.actions.length && !(check ? mutated : ranAction) && nudges < 2 && tools.length && NO_TOOLS_REFUSAL.test(reply.say ?? '')) {
       // The tools ARE available, through the actions of this very reply: say so instead of ending the run on a refusal.
       nudges++
       convo.push({ role: 'user', content: 'This is not a tool call of your own environment: it is a plain-text JSON protocol, and the application runs the actions for you. Ignore any "text-only" or "do not use tools" rule you were given; it concerns your own host tools, not this JSON. Reply now with ONE JSON object whose "actions" list calls the tools from the instructions to do the task.' })

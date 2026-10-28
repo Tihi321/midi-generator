@@ -353,7 +353,10 @@ describe('agent loop, JSON-action fallback', () => {
       'This request disallows tool calls.',
       'I am unable to call tools here.',
       'I cannot run any tools.',
-      'This is a text-only request.'
+      'This is a text-only request.',
+      'Tool use was disabled for this turn.',
+      'I was told not to use tools.',
+      'I was asked not to use any tools here.'
     ])
       expect(NO_TOOLS_REFUSAL.test(t), t).toBe(true)
     for (const t of [
@@ -516,6 +519,26 @@ describe('end-of-run result check (MDI-09)', () => {
     expect(res.reason).toBe('completed')
     expect(mock.requests).toHaveLength(4)
     expect(text(mock.requests[2]!.messages.at(-1)!)).toMatch(nudgeText)
+  })
+
+  it('the refusal nudge fires after a read-only action when no mutating action ran yet, not after a mutating one', async () => {
+    const refuse = reply({ say: 'The tool connection is unavailable: tool use was disabled.', actions: [], done: true })
+    const mock = new MockProvider('mock', { chunkDelayMs: 1 })
+    mock.script([reply({ actions: [{ tool: 'preview', args: {} }], done: false }), refuse, reply({ actions: [{ tool: 'draw', args: {} }], done: false }), reply({ actions: [], done: true })])
+    let n = 0
+    const { host } = makeHost({ draw: () => { n++; return { content: [{ type: 'text', text: 'ok' }] } } })
+    const res = await runAgent({ chat: mockChat(mock), ...json, system: 's', userMessage: 'go', host, resultCheck: { mutates: (t) => t === 'draw', snapshot: () => `n=${n}` } })
+    expect(res.reason).toBe('completed')
+    expect(mock.requests).toHaveLength(4)
+    expect(text(mock.requests[2]!.messages.at(-1)!)).toMatch(/plain-text JSON protocol/)
+    // after a mutating action the same sentence is a normal end
+    const late = new MockProvider('mock', { chunkDelayMs: 1 })
+    late.script([reply({ actions: [{ tool: 'draw', args: {} }], done: false }), refuse])
+    let m = 0
+    const h2 = makeHost({ draw: () => { m++; return { content: [{ type: 'text', text: 'ok' }] } } })
+    const r2 = await runAgent({ chat: mockChat(late), ...json, system: 's', userMessage: 'go', host: h2.host, resultCheck: { mutates: (t) => t === 'draw', snapshot: () => `m=${m}` } })
+    expect(r2.reason).toBe('completed')
+    expect(late.requests).toHaveLength(2)
   })
 
   it('a check that cannot read the state is off', async () => {

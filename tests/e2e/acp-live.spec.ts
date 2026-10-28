@@ -147,7 +147,8 @@ test('c) agent runs', async () => {
   test.setTimeout((RUNS[0]!.timeout + 60_000) * RUNS.length * REPEAT)
   await page.getByTestId('tab-chat').click()
   const results: string[] = []
-  for (const run of RUNS) {
+  // ACP_ONLY=codex runs only the models whose ref contains that text
+  for (const run of RUNS.filter((r) => !process.env.ACP_ONLY || r.ref.includes(process.env.ACP_ONLY))) {
     for (let i = 1; i <= REPEAT; i++) {
       const t0 = Date.now()
       let cause = ''
