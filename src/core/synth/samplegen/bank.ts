@@ -73,7 +73,7 @@ const NOTE = (def: number): ParamSpec => num('note', def, 12, 108, `MIDI note th
 const SEED: ParamSpec = num('seed', 0, 0, 4294967295, 'Random seed (0 = the recipe\'s fixed default).')
 const LOOP: ParamSpec = flag('loop', true, 'Loop the sustained part (true) or play once (false).')
 const SECONDS = (def: number, max = 3): ParamSpec => num('seconds', def, 0.03, max, `Length in seconds (memory is ~9 bytes per 16 samples).`)
-const RATE = (def: number): ParamSpec => num('rate', def, 4000, 32000, `Sample rate in Hz (lower = smaller and grittier), default ${def}.`)
+const RATE = (def: number, max = 32000): ParamSpec => num('rate', def, 4000, max, `Sample rate in Hz (lower = smaller and grittier), default ${def}.`)
 
 const n = (p: RecipeParams, k: string): number => p[k] as number
 const s = (p: RecipeParams, k: string): string => p[k] as string
@@ -555,11 +555,17 @@ export function processForSnes(raw: SampleResult, opts: SnesProcessOptions = {})
 
 /** A recipe through the SNES pipeline (cached): { pcm (decoded BRR), sampleRate, loopStart?, baseNote }. */
 export function generateSample(recipe: string, params: Record<string, unknown> = {}): SampleResult {
+  return generateForTarget('snes', recipe, params)
+}
+
+/** A recipe through a registered target's pipeline (cached under `<target>|<recipe>|<params>`; 'raw' is `generateRaw`). */
+function generateForTarget(target: SampleTarget, recipe: string, params: Record<string, unknown>): SampleResult {
   const p = normalizeRecipeParams(recipe, params)
-  const key = `snes|${recipe}|${paramKey(p)}`
+  if (target === 'raw') return generateRaw(recipe, p)
+  const key = `${target}|${recipe}|${paramKey(p)}`
   const hit = cache.get(key)
   if (hit) return hit
-  return remember(key, processForSnes(generateRaw(recipe, p)))
+  return remember(key, requireSampleTarget(target).process(generateRaw(recipe, p)))
 }
 
 function userPcm(slot: SampleSlot & { source: { kind: 'pcm' } }): SampleResult {
@@ -583,12 +589,49 @@ export function pcmToBase64(pcm: Int16Array): string {
   return bytesToBase64(bytes)
 }
 
-export type SampleTarget = 'snes' | 'raw'
+/** A sample pipeline id: 'snes' (BRR), 'raw' (PCM16 at the sample's own rate) or one registered by a sample chip. */
+export type SampleTarget = string
+
+export interface SampleTargetDef {
+  /** Generated (recipe) PCM -> what the chip plays: resample, align loops, run the chip's codec round trip. */
+  process(raw: SampleResult): SampleResult
+  /** User PCM slots; defaults to `process` when absent (the SNES also resamples user PCM to its DSP rate). */
+  userPcm?(raw: SampleResult): SampleResult
+  /** Bytes of chip memory for a sample of `samples` PCM samples (RAM budgets). */
+  bytes(samples: number): number
+  /** Rate user PCM is resampled to by `userPcm` (absent: kept), used to estimate lengths without running the pipeline. */
+  userRate?: number
+}
+
+const sampleTargets = new Map<string, SampleTargetDef>()
+
+/** Register (or replace) a sample pipeline. 'snes' and 'raw' are registered below; the PS1 and Dreamcast chips add theirs. */
+export function registerSampleTarget(id: string, def: SampleTargetDef): void {
+  sampleTargets.set(id, def)
+}
+
+export function getSampleTarget(id: string): SampleTargetDef | undefined {
+  return sampleTargets.get(id)
+}
+
+function requireSampleTarget(id: string): SampleTargetDef {
+  const def = sampleTargets.get(id)
+  if (!def) throw new Error(`Unknown sample target "${id}"`)
+  return def
+}
+
+registerSampleTarget('snes', { process: (raw) => processForSnes(raw), userPcm: (raw) => processForSnes(raw, { to32k: true }), bytes: brrByteSize, userRate: 32000 })
+registerSampleTarget('raw', { process: (raw) => raw, bytes: (samples) => samples * 2 })
+
+/** Chip memory bytes of `samples` PCM samples under a target (BRR 9 bytes per 16 for 'snes', 2 per sample for 'raw'). */
+export function sampleTargetBytes(target: SampleTarget, samples: number): number {
+  return requireSampleTarget(target).bytes(samples)
+}
 
 /**
  * Resolve a song's sample slot. 'snes' (default): the BRR-processed sample the SPC700 plays; 'raw': PCM16 at the
- * sample's own rate (NES DPCM, Genesis DAC). Recipe slots use `slot.loopStart` when set, else the recipe's loop.
- * Returns undefined for an unknown id; throws for a broken recipe slot.
+ * sample's own rate (NES DPCM, Genesis DAC); other ids are registered targets. Recipe slots use `slot.loopStart`
+ * when set, else the recipe's loop. Returns undefined for an unknown id; throws for a broken recipe slot or target.
  */
 export function resolveSampleSlot(song: { samples: readonly SampleSlot[] }, id: string, target: SampleTarget = 'snes'): SampleResult | undefined {
   const slot = song.samples.find((x) => x.id === id)
@@ -597,23 +640,24 @@ export function resolveSampleSlot(song: { samples: readonly SampleSlot[] }, id: 
 }
 
 export function resolveSlot(slot: SampleSlot, target: SampleTarget = 'snes'): SampleResult {
+  const def = requireSampleTarget(target)
   if (slot.source.kind === 'recipe') {
     const p = normalizeRecipeParams(slot.source.recipe, slot.source.params)
-    const base = target === 'snes' ? generateSample(slot.source.recipe, p) : generateRaw(slot.source.recipe, p)
+    const base = generateForTarget(target, slot.source.recipe, p)
     if (slot.loopStart === undefined || slot.loopStart === base.loopStart) return base
     const raw = generateRaw(slot.source.recipe, p)
     const key = `${target}|${slot.source.recipe}|${paramKey(p)}|loop=${slot.loopStart}`
     const hit = cache.get(key)
     if (hit) return hit
     const withLoop: SampleResult = { ...raw, loopStart: slot.loopStart }
-    return remember(key, target === 'snes' ? processForSnes(withLoop) : withLoop)
+    return remember(key, def.process(withLoop))
   }
   const src = slot.source
   const key = `pcm|${target}|${slot.id}|${src.sampleRate}|${slot.loopStart ?? ''}|${src.data.length}|${src.data.slice(0, 32)}|${src.data.slice(-32)}`
   const hit = cache.get(key)
   if (hit) return hit
   const raw = userPcm(slot as SampleSlot & { source: { kind: 'pcm' } })
-  return remember(key, target === 'snes' ? processForSnes(raw, { to32k: true }) : raw)
+  return remember(key, (def.userPcm ?? def.process)(raw))
 }
 
 /** Like resolveSampleSlot but never throws (the audio path): undefined when the slot is missing or broken. */
@@ -630,10 +674,10 @@ export function peekSampleLength(slot: SampleSlot): number {
   return tryPeekSampleLength(slot) ?? 8192
 }
 
-/** Length in samples after the SNES pipeline, or undefined when the slot cannot be generated (unknown recipe, ...). */
-export function tryPeekSampleLength(slot: SampleSlot): number | undefined {
+/** Length in samples after a target's pipeline (default SNES), or undefined when the slot cannot be generated (unknown recipe, ...). */
+export function tryPeekSampleLength(slot: SampleSlot, target: SampleTarget = 'snes'): number | undefined {
   try {
-    return resolveSlot(slot, 'snes').pcm.length
+    return resolveSlot(slot, target).pcm.length
   } catch {
     return undefined
   }

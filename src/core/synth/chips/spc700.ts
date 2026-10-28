@@ -3,6 +3,10 @@
 // x 16 ms, feedback, 8-tap FIR and echo volume) with a per-voice echo send. The 32 kHz mix is resampled to the
 // output rate (cubic) per voice; the echo is its own bus, exposed to the player as the `_echo` stem.
 //
+// The sample playback, the resampling clock, the send-bus contract and the key-on / declick / release template are
+// the shared sampler core in `../sampler/`; this file keeps what is SNES-specific: the ADSR / GAIN envelope and the
+// echo.
+//
 // Accuracy notes (see also samplegen/): decoded BRR is played from the encoder's PCM (identical to what the DSP
 // decodes, modulo the 15-bit clamp); the envelope counters are per voice (the hardware shares one global counter
 // with offsets, which only changes the phase of the steps); GAIN decay modes start from full level instead of 0 so
@@ -13,10 +17,11 @@
 import type { Instrument, SnesConfig, SnesEnvelope, SnesSampleInstrument, Song } from '../../types'
 import { registerMixProfile } from '../mixer'
 import type { ChannelControl } from '../sequencer'
-import { GAUSS } from '../samplegen/gauss'
-import { type SampleResult, tryResolveSampleSlot } from '../samplegen/bank'
-import { clamp, dbToGain, midiToHz } from '../tables'
-import { type AuxOutput, type ChipVoice, type VoiceArgs, registerVoice } from './types'
+import { type SendBus, SharedBus } from '../sampler/bus'
+import { DspClock } from '../sampler/clock'
+import { SamplerVoice } from '../sampler/voice'
+import { clamp } from '../tables'
+import { type ChipVoice, type VoiceArgs, registerVoice } from './types'
 
 export const SNES_DSP_RATE = 32000
 /** Frames per 16 ms echo delay step. */
@@ -32,17 +37,13 @@ const COUNTER_WRAP = 30720
 /** Soft release: update period (steps) of the exponential decay used for `rel`. */
 const SOFT_RELEASE_PERIOD = 12
 
-function catmull(y0: number, y1: number, y2: number, y3: number, t: number): number {
-  return ((((-0.5 * y0 + 1.5 * y1 - 1.5 * y2 + 0.5 * y3) * t + (y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3)) * t + (-0.5 * y0 + 0.5 * y2)) * t) + y1
-}
-
 // ---------------------------------------------------------------------------------------------
 // Echo bus
 
 const ECHO_MAX_FRAMES = 15 * SNES_ECHO_STEP_FRAMES
 
 /** Echo ring buffer + 8-tap FIR + feedback, shared by the eight voices. Runs at 32 kHz. */
-export class EchoBus {
+export class EchoBus implements SendBus {
   /** Per-step stereo send accumulated by the voices for the current block (cleared after render). */
   readonly sendL: Float32Array
   readonly sendR: Float32Array
@@ -60,10 +61,7 @@ export class EchoBus {
   private feedback = 0
   private volL = 0
   private volR = 0
-  private readonly inc: number
-  private frac = 0
-  private readonly a = new Float64Array(4)
-  private readonly b = new Float64Array(4)
+  private readonly clock: DspClock
 
   constructor(sampleRate: number, maxBlock: number) {
     const cap = Math.ceil((maxBlock * SNES_DSP_RATE) / sampleRate) + 8
@@ -71,7 +69,7 @@ export class EchoBus {
     this.sendR = new Float32Array(cap)
     this.outL = new Float32Array(cap)
     this.outR = new Float32Array(cap)
-    this.inc = SNES_DSP_RATE / sampleRate
+    this.clock = new DspClock(SNES_DSP_RATE, sampleRate)
     this.fir[0] = 1
   }
 
@@ -101,9 +99,7 @@ export class EchoBus {
     this.sendL.fill(0)
     this.sendR.fill(0)
     this.pos = 0
-    this.frac = 0
-    this.a.fill(0)
-    this.b.fill(0)
+    this.clock.reset()
     this.steps = 0
   }
 
@@ -141,28 +137,7 @@ export class EchoBus {
     }
     this.pos = pos
     // resample 32 kHz -> output rate with the same clock the voices use
-    const a = this.a
-    const b = this.b
-    let k = 0
-    let frac = this.frac
-    for (let i = 0; i < n; i++) {
-      while (frac >= 1) {
-        frac -= 1
-        a[0] = a[1]!
-        a[1] = a[2]!
-        a[2] = a[3]!
-        b[0] = b[1]!
-        b[1] = b[2]!
-        b[2] = b[3]!
-        a[3] = k < steps ? this.outL[k]! : 0
-        b[3] = k < steps ? this.outR[k]! : 0
-        k++
-      }
-      L[i] = catmull(a[0]!, a[1]!, a[2]!, a[3]!, frac)
-      R[i] = catmull(b[0]!, b[1]!, b[2]!, b[3]!, frac)
-      frac += this.inc
-    }
-    this.frac = frac
+    this.clock.resampleStereo(this.outL, this.outR, steps, L, R, n)
     this.steps = 0
   }
 }
@@ -181,30 +156,7 @@ const REL_SOFT = 1
 const REL_HARD = 2
 const REL_DECLICK = 3
 
-export class SpcVoice implements ChipVoice {
-  readonly mixGroup = 'direct' as const
-  readonly linearGain = 0.3
-  readonly aux?: AuxOutput
-
-  private song: Song
-  private trimGain = 1
-  private muted = false
-
-  // sample playback
-  private pcm: Int16Array = new Int16Array(0)
-  private len = 0
-  private loopStart = -1
-  private rp = 0
-  private h0 = 0
-  private h1 = 0
-  private h2 = 0
-  private h3 = 0
-  private cnt = 0
-  private pitch = 0x1000
-  private baseRatio = 1
-  private active = false
-  private keyed = false
-
+export class SpcVoice extends SamplerVoice<SnesSampleInstrument> {
   // envelope
   private env = 0
   private mode = MODE_ATTACK
@@ -213,48 +165,9 @@ export class SpcVoice implements ChipVoice {
   private adsr: readonly number[] = [15, 7, 7, 0]
   private gainMode = 'direct'
   private gainRate = 0
-  private pending: SnesSampleInstrument | null = null
-  private freqHz = 261.63
 
-  // mix
-  private vol = 0
-  private panL = 1
-  private panR = 1
-  private echoOn = false
-  private inst: SnesSampleInstrument | null = null
-
-  // 32 kHz -> output rate clock
-  private readonly inc: number
-  private frac = 0
-  private a0 = 0
-  private a1 = 0
-  private a2 = 0
-  private a3 = 0
-  private k = 0
-
-  constructor(
-    private readonly args: VoiceArgs,
-    private readonly dsp: EchoBus
-  ) {
-    this.song = args.song
-    this.inc = SNES_DSP_RATE / args.sampleRate
-    if (args.index === 0) {
-      const dsp0 = dsp
-      this.aux = { id: '_echo', render: (L, R, n) => dsp0.render(L, R, n) }
-    }
-    this.syncSong(args.song)
-  }
-
-  private syncSong(song: Song): void {
-    this.song = song
-    this.trimGain = dbToGain(song.channels[this.args.index]?.trim ?? 0)
-    this.dsp.configure(song)
-    // warm the sample cache so generation never happens on the audio thread
-    for (const inst of song.instruments) if (inst.kind === 'snes-sample') tryResolveSampleSlot(song, inst.sample)
-  }
-
-  setSong(song: Song): void {
-    this.syncSong(song)
+  constructor(args: VoiceArgs, dsp: EchoBus) {
+    super(args, dsp, { dspRate: SNES_DSP_RATE, interp: 'gauss', target: 'snes', pitchMax: 0x3fff, linearGain: 0.3, auxId: '_echo' })
   }
 
   /** Current 11-bit envelope level (0..2047) and pitch register (diagnostics and tests). */
@@ -262,21 +175,15 @@ export class SpcVoice implements ChipVoice {
     return this.env
   }
   get pitchRegister(): number {
-    return this.pitch
+    return this.playback.pitch
   }
 
-  setMuted(muted: boolean): void {
-    this.muted = muted
+  protected instOf(inst: Instrument | undefined): SnesSampleInstrument | null {
+    return inst && inst.kind === 'snes-sample' ? inst : null
   }
 
-  private loadSample(inst: SnesSampleInstrument): boolean {
-    const r: SampleResult | undefined = tryResolveSampleSlot(this.song, inst.sample)
-    if (!r || r.pcm.length === 0) return false
-    this.pcm = r.pcm
-    this.len = r.pcm.length
-    this.loopStart = r.loopStart !== undefined && r.loopStart < r.pcm.length ? r.loopStart : -1
-    this.baseRatio = r.sampleRate / SNES_DSP_RATE
-    return true
+  protected sendLevelOf(c: ChannelControl, e: SnesSampleInstrument): number {
+    return (c.echo ?? e.echo) ? 1 : 0
   }
 
   private setEnvParams(env: SnesEnvelope | undefined): void {
@@ -288,28 +195,13 @@ export class SpcVoice implements ChipVoice {
     }
   }
 
-  private calcPitch(e: SnesSampleInstrument): number {
-    const fine = e.fine ?? 0
-    const ratio = (this.freqHz / midiToHz(e.baseNote)) * (fine ? Math.pow(2, fine / 1200) : 1)
-    return clamp(Math.round(this.baseRatio * ratio * 0x1000), 1, 0x3fff)
+  protected envParams(e: SnesSampleInstrument): void {
+    this.setEnvParams(e.env)
   }
 
-  private startNote(inst: SnesSampleInstrument): void {
-    if (!this.loadSample(inst)) {
-      this.active = false
-      this.keyed = false
-      return
-    }
-    this.inst = inst
-    this.rp = 0
-    this.h0 = this.h1 = this.h2 = this.h3 = 0
-    this.cnt = 0
+  protected envStart(inst: SnesSampleInstrument): void {
     this.ecnt = 0
     this.relKind = REL_NONE
-    this.active = true
-    this.keyed = true
-    this.setEnvParams(inst.env)
-    this.pitch = this.calcPitch(inst)
     if ('gain' in inst.env) {
       this.mode = MODE_GAIN
       const m = this.gainMode
@@ -320,36 +212,42 @@ export class SpcVoice implements ChipVoice {
     }
   }
 
-  control(c: ChannelControl, inst: Instrument | undefined): void {
-    const e = inst && inst.kind === 'snes-sample' ? inst : null
-    this.freqHz = c.freqHz
-    this.panL = c.pan > 0 ? 1 - c.pan : 1
-    this.panR = c.pan < 0 ? 1 + c.pan : 1
-    if (c.gate || c.vol > 0) this.vol = c.vol
-    if (e) {
-      this.echoOn = c.echo ?? e.echo
-      if (this.inst === e || !this.keyed) this.setEnvParams(e.env)
-    }
-    if (c.trigger && e) {
-      if (this.active && this.env > 0) {
-        // retrigger on a sounding voice: declick (fast KOFF) first, as sound drivers do
-        this.pending = e
-        this.relKind = REL_DECLICK
-      } else this.startNote(e)
-    }
-    const pi = this.inst ?? e
-    if (this.active && pi) this.pitch = this.calcPitch(pi)
-    if (!c.trigger && !c.gate && this.keyed && this.relKind !== REL_DECLICK) {
-      this.relKind = c.release && e ? REL_SOFT : REL_HARD
-      this.mode = MODE_RELEASE
-    }
+  protected envRelease(c: ChannelControl, e: SnesSampleInstrument | null): void {
+    if (this.relKind === REL_DECLICK) return
+    this.relKind = c.release && e ? REL_SOFT : REL_HARD
+    this.mode = MODE_RELEASE
+  }
+
+  protected envGain(): number {
+    return this.env / 2047
+  }
+
+  protected envSounding(): boolean {
+    return this.env > 0
+  }
+
+  protected beginDeclick(): void {
+    this.relKind = REL_DECLICK
+  }
+
+  protected envReset(): void {
+    this.env = 0
+    this.mode = MODE_ATTACK
+    this.relKind = REL_NONE
+  }
+
+  protected onSampleEnd(): void {
+    // end of a one-shot: the DSP forces a release to 0
+    this.env = 0
+    this.active = false
+    this.keyed = false
   }
 
   private fire(period: number): boolean {
     return period > 0 && this.ecnt % period === 0
   }
 
-  private stepEnv(): void {
+  protected envStep(): void {
     this.ecnt++
     if (this.ecnt >= COUNTER_WRAP) this.ecnt = 0
     let env = this.env
@@ -357,10 +255,7 @@ export class SpcVoice implements ChipVoice {
       env -= 64
       if (env <= 0) {
         this.env = 0
-        const p = this.pending
-        this.pending = null
-        this.active = false
-        if (p) this.startNote(p)
+        this.finishDeclick()
         return
       }
       this.env = env
@@ -417,101 +312,11 @@ export class SpcVoice implements ChipVoice {
     }
     this.env = env
   }
-
-  private nextSample(): number {
-    if (this.rp >= this.len) {
-      if (this.loopStart >= 0) this.rp = this.loopStart
-      else {
-        // end of a one-shot: the DSP forces a release to 0
-        this.env = 0
-        this.active = false
-        this.keyed = false
-        return 0
-      }
-    }
-    return this.pcm[this.rp++]!
-  }
-
-  /** One 32 kHz DSP step: returns the voice's dry output (-1..1) and adds its echo send. */
-  private step32(): number {
-    if (!this.active) return 0
-    this.stepEnv()
-    if (!this.active) return 0
-    let cnt = this.cnt + this.pitch
-    while (cnt >= 0x1000) {
-      cnt -= 0x1000
-      this.h0 = this.h1
-      this.h1 = this.h2
-      this.h2 = this.h3
-      this.h3 = this.nextSample()
-    }
-    this.cnt = cnt
-    const g = (cnt >> 4) & 255
-    const s = (GAUSS[255 - g]! * this.h0 + GAUSS[511 - g]! * this.h1 + GAUSS[256 + g]! * this.h2 + GAUSS[g]! * this.h3) / 2048 / 32768
-    const out = s * (this.env / 2047) * this.vol
-    if (this.echoOn && !this.muted) {
-      const k = this.k
-      const g0 = out * this.linearGain * this.trimGain
-      this.dsp.sendL[k] = this.dsp.sendL[k]! + g0 * this.panL
-      this.dsp.sendR[k] = this.dsp.sendR[k]! + g0 * this.panR
-    }
-    return out
-  }
-
-  render(buf: Float32Array, from: number, to: number): void {
-    this.k = 0
-    let frac = this.frac
-    let a0 = this.a0
-    let a1 = this.a1
-    let a2 = this.a2
-    let a3 = this.a3
-    const inc = this.inc
-    for (let i = from; i < to; i++) {
-      while (frac >= 1) {
-        frac -= 1
-        a0 = a1
-        a1 = a2
-        a2 = a3
-        a3 = this.step32()
-        this.k++
-      }
-      buf[i] = catmull(a0, a1, a2, a3, frac)
-      frac += inc
-    }
-    this.frac = frac
-    this.a0 = a0
-    this.a1 = a1
-    this.a2 = a2
-    this.a3 = a3
-    this.dsp.steps = this.k
-  }
-
-  reset(): void {
-    this.active = false
-    this.keyed = false
-    this.pending = null
-    this.env = 0
-    this.mode = MODE_ATTACK
-    this.relKind = REL_NONE
-    this.vol = 0
-    this.echoOn = false
-    this.inst = null
-    this.cnt = 0
-    this.rp = 0
-    this.h0 = this.h1 = this.h2 = this.h3 = 0
-    this.frac = 0
-    this.a0 = this.a1 = this.a2 = this.a3 = 0
-    this.k = 0
-    if (this.args.index === 0) this.dsp.reset()
-  }
 }
 
-let currentEcho: EchoBus | null = null
+const echoBuses = new SharedBus((a) => new EchoBus(a.sampleRate, a.maxBlock))
 
-registerVoice('snes', 'sample', (a): ChipVoice => {
-  if (!currentEcho || a.index === 0) currentEcho = new EchoBus(a.sampleRate, a.maxBlock)
-  return new SpcVoice(a, currentEcho)
-})
+registerVoice('snes', 'sample', (a): ChipVoice => new SpcVoice(a, echoBuses.get(a)))
 
 registerMixProfile('snes', {
   outputGain: 1,

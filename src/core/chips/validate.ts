@@ -6,7 +6,7 @@ import { EFFECT_CODES } from '../types'
 import { describeNote } from '../notes'
 import { KINDS_BY_CHIP } from '../instruments/types'
 import { validateInstrument } from '../instruments/validate'
-import { tryPeekSampleLength } from '../synth/samplegen/bank'
+import { getSampleTarget, tryPeekSampleLength } from '../synth/samplegen/bank'
 import { type ChannelDef, type ChipProfile, type Issue, type ValidateScope, forEachPattern } from './types'
 
 export interface ProfileSpec {
@@ -154,8 +154,9 @@ export function channelDefFor(profile: ChipProfile, song: Song, channelId: strin
 // ---------------------------------------------------------------------------------------------
 // Samples
 
-/** Approximate sample length in PCM samples for ARAM accounting. */
-export function estimateSampleLength(slot: SampleSlot, sampleSizes?: Record<string, number>): number {
+/** Approximate sample length in PCM samples for RAM accounting (default: the SNES ARAM pipeline; `target` picks another). */
+export function estimateSampleLength(slot: SampleSlot, sampleSizes?: Record<string, number>, target = 'snes'): number {
+  const rate = getSampleTarget(target)?.userRate
   const known = sampleSizes?.[slot.id]
   if (known !== undefined) return known
   if (slot.source.kind === 'pcm') {
@@ -163,10 +164,10 @@ export function estimateSampleLength(slot: SampleSlot, sampleSizes?: Record<stri
     const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0
     const n = Math.floor(((b64.length * 3) / 4 - pad) / 2)
     // the SNES pipeline resamples user PCM to 32 kHz
-    return slot.source.sampleRate > 0 ? Math.round((n * 32000) / slot.source.sampleRate) : n
+    return rate && slot.source.sampleRate > 0 ? Math.round((n * rate) / slot.source.sampleRate) : n
   }
-  // recipe slots: the exact length after the SNES pipeline (cached generation)
-  const exact = tryPeekSampleLength(slot)
+  // recipe slots: the exact length after the target's pipeline (cached generation)
+  const exact = tryPeekSampleLength(slot, target)
   if (exact !== undefined) return exact
   const p = slot.source.params
   for (const k of ['samples', 'length', 'numSamples']) {
@@ -175,7 +176,7 @@ export function estimateSampleLength(slot: SampleSlot, sampleSizes?: Record<stri
   }
   for (const k of ['seconds', 'duration', 'durationSec']) {
     const v = p[k]
-    if (typeof v === 'number' && v > 0) return Math.round(v * 32000)
+    if (typeof v === 'number' && v > 0) return Math.round(v * (rate ?? 32000))
   }
   return 8192
 }

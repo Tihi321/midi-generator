@@ -18,13 +18,16 @@ export {
   normalizeRecipeParams,
   pcmToBase64,
   peekSampleLength,
+  getSampleTarget,
   prepareDpcm,
   processForSnes,
   recipeIds,
+  registerSampleTarget,
   resolveSampleSlot,
   resolveSlot,
   sampleByteSize,
   sampleSizes,
+  sampleTargetBytes,
   tryPeekSampleLength,
   tryResolveSampleSlot,
   type DpcmEncoded,
@@ -33,5 +36,6 @@ export {
   type RecipeInfo,
   type RecipeParams,
   type SampleResult,
-  type SampleTarget
+  type SampleTarget,
+  type SampleTargetDef
 } from './bank'
