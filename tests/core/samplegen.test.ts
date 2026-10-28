@@ -11,11 +11,13 @@ import {
   encodeDpcm,
   gaussInterpolate,
   generateRaw,
+  clearSampleCache,
   generateSample,
   listRecipes,
   normalizeRecipeParams,
   pcmToBase64,
   resolveSampleSlot,
+  resolveSlot,
   sampleByteSize,
   snrDb
 } from '../../src/core/synth/samplegen'
@@ -108,7 +110,8 @@ describe('generators', () => {
       expect(r.loops ? g.loopStart !== undefined : g.loopStart === undefined, r.id).toBe(true)
       if (g.loopStart !== undefined) expect(g.loopStart % 16).toBe(0)
       expect(g.sampleRate).toBeGreaterThan(8000)
-      expect(g.sampleRate).toBeLessThan(40000)
+      // the 44.1 kHz synthwave loops are tuned to a native rate within a few percent of 44.1 kHz (up to 48 kHz)
+      expect(g.sampleRate).toBeLessThan(49000)
     }
   })
 
@@ -178,5 +181,123 @@ describe('DPCM and DAC', () => {
   it('DAC quantiser gives signed 8-bit values', () => {
     const q = dacQuantize(Int16Array.of(0, 256, -256, 32767, -32768, 100))
     expect(Array.from(q)).toEqual([0, 1, -1, 127, -128, 0])
+  })
+})
+
+// ---------------------------------------------------------------------------------------------
+// Synthwave recipes (PS1 / Dreamcast, 44.1 kHz)
+
+const SYNTH_RECIPES = ['supersaw', 'sawlead', 'syncsaw', 'junopad', 'analogbass', 'fmbass', 'synthpluck', 'synthbrass', 'dxepiano', 'dxbell', 'linnkick', '808kick', 'linnsnare', 'gatedsnare', 'linnclap', 'linnhat', 'linnopenhat', 'linntom', 'linncrash']
+const SYNTH_LOOPS = ['supersaw', 'sawlead', 'syncsaw', 'junopad', 'analogbass', 'fmbass', 'synthbrass']
+
+const peak01 = (pcm: Int16Array): number => Math.max(...pcm.map(Math.abs)) / 32767
+
+describe('synthwave recipes', () => {
+  it('are all registered, with a role, and the loops flag matches the default output', () => {
+    const ids = listRecipes().map((r) => r.id)
+    for (const id of SYNTH_RECIPES) expect(ids, id).toContain(id)
+    for (const id of SYNTH_RECIPES) {
+      const r = listRecipes().find((x) => x.id === id)!
+      expect(r.loops, id).toBe(SYNTH_LOOPS.includes(id))
+      expect(generateRaw(id).loopStart !== undefined, id).toBe(r.loops)
+    }
+    // the first recipes (and therefore the SNES output) are unchanged
+    expect(ids.slice(0, 20)).toEqual(['strings', 'choir', 'organ', 'flute', 'brass', 'pad', 'bass', 'lead', 'harp', 'pluck', 'guitar', 'koto', 'bell', 'epiano', 'kick', 'snare', 'hat', 'openhat', 'crash', 'tom'])
+  })
+
+  it('are deterministic (also after a cache clear), seeded, and peak between 0.5 and 0.95', () => {
+    for (const id of SYNTH_RECIPES) {
+      const a = generateRaw(id)
+      clearSampleCache()
+      const b = generateRaw(id, { seed: 0 })
+      expect(Buffer.compare(Buffer.from(a.pcm.buffer, a.pcm.byteOffset, a.pcm.byteLength), Buffer.from(b.pcm.buffer, b.pcm.byteOffset, b.pcm.byteLength)), id).toBe(0)
+      expect(peak01(a.pcm), id).toBeGreaterThan(0.5)
+      expect(peak01(a.pcm), id).toBeLessThan(0.95)
+      expect(a.pcm.length % 16, id).toBe(0)
+      if (listRecipes().find((r) => r.id === id)!.params.some((p) => p.key === 'seed')) {
+        const s1 = generateRaw(id, { seed: 11 })
+        const s2 = generateRaw(id, { seed: 12 })
+        expect(Array.from(s1.pcm).join() === Array.from(s2.pcm).join(), id + ' seed').toBe(false)
+      }
+    }
+  })
+
+  it('loops are multiples of 112 (whole BRR and PS-X blocks), at most 16k samples, seamless and tuned near 44.1 kHz', () => {
+    for (const id of SYNTH_LOOPS) {
+      const g = generateRaw(id)
+      const ls = g.loopStart!
+      const loopLen = g.pcm.length - ls
+      expect(ls % 112, id).toBe(0)
+      expect(loopLen % 112, id).toBe(0)
+      expect(loopLen, id).toBeLessThanOrEqual(16384)
+      expect(g.sampleRate, id).toBeGreaterThan(40000)
+      expect(g.sampleRate, id).toBeLessThan(48000)
+      // the step across the loop point (and from the intro into the loop) is no bigger than the steepest step inside the loop
+      let maxStep = 0
+      for (let i = ls + 1; i < g.pcm.length; i++) maxStep = Math.max(maxStep, Math.abs(g.pcm[i]! - g.pcm[i - 1]!))
+      expect(Math.abs(g.pcm[ls]! - g.pcm[g.pcm.length - 1]!), id + ' seam').toBeLessThan(1.25 * maxStep)
+      if (ls > 0) expect(Math.abs(g.pcm[ls]! - g.pcm[ls - 1]!), id + ' intro join').toBeLessThan(1.25 * maxStep)
+      // no DC in the loop
+      let mean = 0
+      for (let i = ls; i < g.pcm.length; i++) mean += g.pcm[i]!
+      expect(Math.abs(mean / loopLen) / 32767, id).toBeLessThan(0.02)
+    }
+  })
+
+  it('go through the SNES, PS1 and AICA targets with their loop alignment kept (no resampling of the 112 grid)', () => {
+    for (const id of SYNTH_RECIPES) {
+      const raw = generateRaw(id)
+      const slot: SampleSlot = { id, name: id, source: { kind: 'recipe', recipe: id, params: {} } }
+      const snes = generateSample(id)
+      expect(snes.pcm.length % 16, id).toBe(0)
+      const psx = resolveSlot(slot, 'psx')
+      expect(psx.pcm.length % 28, id).toBe(0)
+      if (raw.loopStart !== undefined) {
+        expect(psx.loopStart, id).toBe(raw.loopStart)
+        expect(psx.pcm.length, id).toBe(raw.pcm.length)
+        expect(psx.sampleRate, id).toBe(raw.sampleRate)
+        expect(snes.loopStart, id).toBe(raw.loopStart)
+      } else {
+        expect(psx.loopStart, id).toBeUndefined()
+        expect(psx.pcm.length - raw.pcm.length, id).toBeLessThan(28)
+      }
+      // the 4-bit codec keeps the sound: a usable SNR against the raw sample
+      const n = Math.min(raw.pcm.length, psx.pcm.length)
+      expect(snrDb(raw.pcm.subarray(0, n), psx.pcm.subarray(0, n)), id).toBeGreaterThan(8)
+      for (const target of ['aica16', 'aica8', 'aica-adpcm']) {
+        const a = resolveSlot(slot, target)
+        expect(a.pcm.length, id + ' ' + target).toBe(raw.pcm.length)
+        expect(a.loopStart, id + ' ' + target).toBe(raw.loopStart)
+      }
+    }
+  })
+
+  it('the gated snare is exactly its gate long and ends silent; the 808 boom is long and slow', () => {
+    for (const gate of [0.15, 0.28, 0.4]) {
+      const g = generateRaw('gatedsnare', { gate })
+      expect(g.pcm.length).toBe(Math.ceil(Math.round(gate * g.sampleRate) / 16) * 16)
+      expect(Math.abs(g.pcm[g.pcm.length - 1]!) / 32767).toBeLessThan(0.01)
+    }
+    const k = generateRaw('808kick')
+    expect(k.pcm.length / k.sampleRate).toBeGreaterThan(0.85)
+    // energy in the second half of the boom is still there (a long decay)
+    const half = k.pcm.length >> 1
+    let late = 0
+    let total = 0
+    for (let i = 0; i < k.pcm.length; i++) {
+      total += k.pcm[i]! ** 2
+      if (i >= half) late += k.pcm[i]! ** 2
+    }
+    expect(late / total).toBeGreaterThan(0.002)
+  })
+
+  it('validate their parameters like the other recipes', () => {
+    expect(() => normalizeRecipeParams('supersaw', { voices: 12 })).toThrow(/3..9/)
+    expect(() => normalizeRecipeParams('gatedsnare', { gate: 1 })).toThrow(/0.15..0.4/)
+    expect(() => normalizeRecipeParams('analogbass', { pluck: 'yes' })).toThrow(/true or false/)
+    expect(() => normalizeRecipeParams('linnkick', { rate: 99999 })).toThrow(/4000..48000/)
+    expect(normalizeRecipeParams('supersaw', { voices: 5 })['voices']).toBe(5)
+    // a looped recipe with loop:false is a one-shot
+    expect(generateRaw('supersaw', { loop: false }).loopStart).toBeUndefined()
   })
 })

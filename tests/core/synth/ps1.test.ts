@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { PRESET_BANKS, SNES_PRESETS, createSong, getChipProfile, missingPresetSample, resolvePreset, validateInstrument } from '../../../src/core'
 import { writeWav } from '../../../src/core/codecs/wav'
 import { SPU_RAM_BYTES, SPU_RESERVED_BYTES, spuRamUsage } from '../../../src/core/chips/ps1'
-import { PS1_PRESETS, psxAttackSeconds, psxReleaseTauSec } from '../../../src/core/instruments/presets/ps1'
+import { PS1_BASELINE_PRESETS, PS1_PRESETS, psxAttackSeconds, psxReleaseTauSec } from '../../../src/core/instruments/presets/ps1'
 import { snesEnvTimes } from '../../../src/core/instruments/presets/snesTimes'
 import { SpuVoice } from '../../../src/core/synth/chips/spu'
 import { SPU_REVERB_PRESETS, SpuReverb, spuReverbBytes, spuReverbFirstRepeatMs } from '../../../src/core/synth/chips/spuReverb'
@@ -669,7 +669,7 @@ describe('SPU reverb send', () => {
 describe('PS1 baseline presets', () => {
   it('map the SNES bank: every preset resolves, validates, plays and matches the SNES attack and release within 20%', () => {
     expect(PRESET_BANKS.ps1).toBe(PS1_PRESETS)
-    PS1_PRESETS.forEach((p, i) => {
+    PS1_BASELINE_PRESETS.forEach((p, i) => {
       const inst = resolvePreset('ps1', p.id)
       expect(validateInstrument(inst), p.id).toEqual([])
       if (inst.kind !== 'psx-sample') throw new Error('kind')

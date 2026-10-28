@@ -80,8 +80,8 @@ describe('preset banks', () => {
     expect(GB_PRESETS.length).toBeLessThanOrEqual(40)
     expect(PRESET_BANKS.genesis.length).toBeGreaterThanOrEqual(20)
     expect(PRESET_BANKS.snes.length).toBeGreaterThanOrEqual(20)
-    expect(PRESET_BANKS.ps1).toHaveLength(SNES_PRESETS.length)
-    expect(PRESET_BANKS.dreamcast).toHaveLength(SNES_PRESETS.length)
+    expect(PRESET_BANKS.ps1).toHaveLength(SNES_PRESETS.length + 20) // the mapped SNES bank + the synthwave presets
+    expect(PRESET_BANKS.dreamcast).toHaveLength(SNES_PRESETS.length + 20)
   })
   for (const chip of ['nes', 'gb', 'ps1', 'dreamcast'] as const) {
     describe(chip, () => {

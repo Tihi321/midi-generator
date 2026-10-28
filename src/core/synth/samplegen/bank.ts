@@ -22,6 +22,26 @@ import {
   tomDrum,
   toInt16
 } from './generators'
+import {
+  analogBass,
+  dxBell,
+  dxEpiano,
+  fmBass,
+  gatedSnare,
+  junoPad,
+  kick808,
+  linnClap,
+  linnCrash,
+  linnHat,
+  linnKick,
+  linnSnare,
+  linnTom,
+  sawLead,
+  superSaw,
+  synthBrass,
+  synthPluck,
+  syncSaw
+} from './synth'
 
 export type ParamValue = number | string | boolean
 export type RecipeParams = Record<string, ParamValue>
@@ -74,6 +94,10 @@ const SEED: ParamSpec = num('seed', 0, 0, 4294967295, 'Random seed (0 = the reci
 const LOOP: ParamSpec = flag('loop', true, 'Loop the sustained part (true) or play once (false).')
 const SECONDS = (def: number, max = 3): ParamSpec => num('seconds', def, 0.03, max, `Length in seconds (memory is ~9 bytes per 16 samples).`)
 const RATE = (def: number, max = 32000): ParamSpec => num('rate', def, 4000, max, `Sample rate in Hz (lower = smaller and grittier), default ${def}.`)
+
+/** Target rate of a 44.1 kHz recipe (PS1 / Dreamcast): the native rate of looped samples lands near it. */
+const RATE44 = (def = 44100): ParamSpec => RATE(def, 48000)
+const SECS = (def: number, max = 3): ParamSpec => num('seconds', def, 0.03, max, 'Length in seconds.')
 
 const n = (p: RecipeParams, k: string): number => p[k] as number
 const s = (p: RecipeParams, k: string): string => p[k] as string
@@ -418,6 +442,179 @@ const RECIPES: RecipeDef[] = [
     loops: false,
     params: [SECONDS(0.15, 1), RATE(22050), SEED],
     build: (p) => handClap({ rate: n(p, 'rate'), seconds: n(p, 'seconds'), seed: seedOf('clap', p) })
+  },
+  // ---- synthwave recipes (PS1 / Dreamcast, 44.1 kHz): loops are 4-16k samples, all lengths multiples of 112 (whole BRR and PS-X blocks)
+  {
+    id: 'supersaw',
+    label: 'Supersaw',
+    role: 'pad',
+    description: 'Supersaw pad: 3-9 band-limited saws detuned in cents (the centre one loudest), quantised to loop bins so the 16k-sample loop is seamless.',
+    loops: true,
+    params: [NOTE(60), num('voices', 7, 3, 9, 'Number of detuned saws (rounded).'), num('detune', 16, 0, 50, 'Outer saw detune in cents.'), num('bright', 0.55, 0, 1, 'Spectral brightness 0 (dark) .. 1 (bright).'), LOOP, RATE44(), SEED],
+    build: (p) => maybeLoop(superSaw({ note: n(p, 'note'), rate: n(p, 'rate'), voices: n(p, 'voices'), detune: n(p, 'detune'), bright: n(p, 'bright'), seed: seedOf('supersaw', p) }), p)
+  },
+  {
+    id: 'sawlead',
+    label: 'Saw lead',
+    role: 'lead',
+    description: 'Detuned saw lead: two saws a few cents apart and an optional saw an octave up, in a short loop.',
+    loops: true,
+    params: [NOTE(72), num('detune', 12, 0, 40, 'Detune between the two saws in cents.'), num('octave', 0, 0, 1, 'Level of an extra saw one octave up.'), num('bright', 0.6, 0, 1, 'Spectral brightness.'), LOOP, RATE44(), SEED],
+    build: (p) => maybeLoop(sawLead({ note: n(p, 'note'), rate: n(p, 'rate'), detune: n(p, 'detune'), octave: n(p, 'octave'), bright: n(p, 'bright'), seed: seedOf('sawlead', p) }), p)
+  },
+  {
+    id: 'syncsaw',
+    label: 'Sync saw',
+    role: 'lead',
+    description: 'Hard-sync lead: a slave saw restarted by the master; the ratio swings once per loop (the seed sets where in the swing the loop starts) so the sync edge moves.',
+    loops: true,
+    params: [NOTE(72), num('ratio', 2.4, 1.1, 6, 'Slave / master frequency ratio.'), num('sweep', 0.6, 0, 3, 'Swing of the ratio over the loop.'), LOOP, RATE44(), SEED],
+    build: (p) => maybeLoop(syncSaw({ note: n(p, 'note'), rate: n(p, 'rate'), ratio: n(p, 'ratio'), sweep: n(p, 'sweep'), seed: seedOf('syncsaw', p) }), p)
+  },
+  {
+    id: 'junopad',
+    label: 'Juno pad',
+    role: 'pad',
+    description: 'Juno-style pad: four stacked pulse widths with small detunes, a baked two-tap chorus and a slow bloom intro.',
+    loops: true,
+    params: [NOTE(60), num('chorus', 1, 0, 1.5, 'Baked chorus level (0 = none).'), num('bright', 0.45, 0, 1, 'Spectral brightness.'), num('bloom', 0.22, 0.05, 0.6, 'Length of the filter bloom intro in seconds.'), LOOP, RATE44(), SEED],
+    build: (p) => maybeLoop(junoPad({ note: n(p, 'note'), rate: n(p, 'rate'), chorus: n(p, 'chorus'), bright: n(p, 'bright'), bloom: n(p, 'bloom'), seed: seedOf('junopad', p) }), p)
+  },
+  {
+    id: 'analogbass',
+    label: 'Analog bass',
+    role: 'bass',
+    description: 'Analog synth bass: a saw plus a sub square through a 24 dB low-pass; "pluck" adds a baked filter-envelope intro that settles into the loop.',
+    loops: true,
+    params: [NOTE(36), num('cutoff', 700, 150, 4000, 'Low-pass cutoff in Hz.'), num('res', 0.3, 0, 1, 'Resonance.'), num('saw', 1, 0, 1, 'Saw level.'), num('sub', 0.6, 0, 1, 'Sub square level.'), num('subOct', -1, -1, 0, 'Sub octave: -1 = an octave below the note, 0 = at the pitch of the note (a round sub).'), flag('pluck', true, 'Bake a filter pluck (bright start) into the intro.'), LOOP, RATE44(), SEED],
+    build: (p) =>
+      maybeLoop(analogBass({ note: n(p, 'note'), rate: n(p, 'rate'), cutoff: n(p, 'cutoff'), res: n(p, 'res'), saw: n(p, 'saw'), sub: n(p, 'sub'), subOct: Math.round(n(p, 'subOct')), pluck: p['pluck'] === true, seed: seedOf('analogbass', p) }), p)
+  },
+  {
+    id: 'fmbass',
+    label: 'FM bass',
+    role: 'bass',
+    description: 'DX-style 2-operator FM bass: the modulation index snaps down over the intro and the loop holds a warm sustain.',
+    loops: true,
+    params: [NOTE(36), num('index', 3.2, 0.5, 8, 'Modulation index at the attack.'), num('sustain', 1.4, 0, 6, 'Modulation index in the loop.'), num('ratio', 1, 1, 4, 'Whole-number modulator ratio.'), LOOP, RATE44(), SEED],
+    build: (p) => maybeLoop(fmBass({ note: n(p, 'note'), rate: n(p, 'rate'), index: n(p, 'index'), sustain: n(p, 'sustain'), ratio: n(p, 'ratio'), seed: seedOf('fmbass', p) }), p)
+  },
+  {
+    id: 'synthpluck',
+    label: 'Synth pluck',
+    role: 'pluck',
+    description: 'Arp pluck: two detuned saws through a resonant low-pass that closes, one-shot.',
+    loops: false,
+    params: [NOTE(60), SECS(0.45, 2), num('cutoff', 5200, 300, 12000, 'Starting cutoff in Hz.'), num('decay', 0.11, 0.02, 1, 'Time constant of the filter closing in seconds.'), num('detune', 9, 0, 40, 'Detune between the two saws in cents.'), RATE(32000, 48000), SEED],
+    build: (p) => synthPluck({ note: n(p, 'note'), rate: n(p, 'rate'), seconds: n(p, 'seconds'), cutoff: n(p, 'cutoff'), decay: n(p, 'decay'), detune: n(p, 'detune'), seed: seedOf('synthpluck', p) })
+  },
+  {
+    id: 'synthbrass',
+    label: 'Synth brass',
+    role: 'brass',
+    description: 'Synth brass: three detuned saws with a baked filter swell intro, then a loop.',
+    loops: true,
+    params: [NOTE(60), num('bright', 0.7, 0, 1, 'Spectral brightness.'), num('swell', 0.1, 0.01, 0.5, 'Length of the filter swell in seconds.'), num('detune', 9, 0, 40, 'Outer saw detune in cents.'), LOOP, RATE44(), SEED],
+    build: (p) => maybeLoop(synthBrass({ note: n(p, 'note'), rate: n(p, 'rate'), bright: n(p, 'bright'), swell: n(p, 'swell'), detune: n(p, 'detune'), seed: seedOf('synthbrass', p) }), p)
+  },
+  {
+    id: 'dxepiano',
+    label: 'DX e-piano',
+    role: 'arp',
+    description: 'DX-style electric piano: a 1:1 FM body with a bright 14:1 tine on the attack.',
+    loops: false,
+    params: [NOTE(60), SECS(0.9, 3), num('tine', 0.3, 0, 1, 'Level of the attack tine.'), RATE(22050, 48000), SEED],
+    build: (p) => dxEpiano({ note: n(p, 'note'), rate: n(p, 'rate'), seconds: n(p, 'seconds'), tine: n(p, 'tine'), seed: seedOf('dxepiano', p) })
+  },
+  {
+    id: 'dxbell',
+    label: 'DX bell',
+    role: 'bell',
+    description: 'DX-style FM bell: inharmonic 3.5:1 stack with a long decaying index and a high strike partial.',
+    loops: false,
+    params: [NOTE(72), SECS(1, 3), RATE(22050, 48000), SEED],
+    build: (p) => dxBell({ note: n(p, 'note'), rate: n(p, 'rate'), seconds: n(p, 'seconds'), seed: seedOf('dxbell', p) })
+  },
+  {
+    id: 'linnkick',
+    label: 'Linn kick',
+    role: 'kick',
+    description: 'LinnDrum-style kick: a fast pitch drop on a sine, a punchy decay, a click and a touch of saturation.',
+    loops: false,
+    params: [SECS(0.26, 1), RATE(22050, 48000), num('startHz', 210, 100, 400, 'Sweep start.'), num('endHz', 52, 30, 90, 'Sweep end.'), num('click', 0.5, 0, 1.5, 'Beater click level.'), SEED],
+    build: (p) => linnKick({ rate: n(p, 'rate'), seconds: n(p, 'seconds'), startHz: n(p, 'startHz'), endHz: n(p, 'endHz'), click: n(p, 'click'), seed: seedOf('linnkick', p) })
+  },
+  {
+    id: '808kick',
+    label: '808 kick',
+    role: 'kick',
+    description: '808-style kick: a long sine boom that decays over "decay" seconds, a quick drop from about 2.6x its pitch, soft-clipped.',
+    loops: false,
+    params: [SECS(0.9, 2), RATE(16000, 48000), num('decay', 0.5, 0.1, 1.5, 'Boom decay (seconds to -20 dB).'), num('hz', 48, 30, 90, 'Boom pitch in Hz.'), SEED],
+    build: (p) => kick808({ rate: n(p, 'rate'), seconds: n(p, 'seconds'), decay: n(p, 'decay'), hz: n(p, 'hz'), seed: seedOf('808kick', p) })
+  },
+  {
+    id: 'linnsnare',
+    label: 'Linn snare',
+    role: 'snare',
+    description: 'LinnDrum-style snare: a pitched tone and bright high-passed noise, driven into a soft clip.',
+    loops: false,
+    params: [SECS(0.2, 1), RATE(32000, 48000), num('toneHz', 185, 100, 400, 'Body tone.'), num('noise', 1, 0, 1.5, 'Noise level.'), SEED],
+    build: (p) => linnSnare({ rate: n(p, 'rate'), seconds: n(p, 'seconds'), toneHz: n(p, 'toneHz'), noise: n(p, 'noise'), seed: seedOf('linnsnare', p) })
+  },
+  {
+    id: 'gatedsnare',
+    label: 'Gated snare',
+    role: 'snare',
+    description: 'Gated-reverb snare: a snare through a dense baked reverb tail, then a hard gate. The sample is "gate" seconds long.',
+    loops: false,
+    params: [num('gate', 0.28, 0.15, 0.4, 'Gate time in seconds: the tail stops dead here.'), RATE(32000, 48000), num('reverb', 1, 0, 1.5, 'Baked reverb level.'), num('toneHz', 185, 100, 400, 'Body tone.'), SEED],
+    build: (p) => gatedSnare({ rate: n(p, 'rate'), gate: n(p, 'gate'), reverb: n(p, 'reverb'), toneHz: n(p, 'toneHz'), seed: seedOf('gatedsnare', p) })
+  },
+  {
+    id: 'linnclap',
+    label: 'Linn clap',
+    role: 'clap',
+    description: 'LinnDrum-style clap: three tight band-passed noise bursts and a short tail with a touch of room.',
+    loops: false,
+    params: [SECS(0.2, 1), RATE(32000, 48000), SEED],
+    build: (p) => linnClap({ rate: n(p, 'rate'), seconds: n(p, 'seconds'), seed: seedOf('linnclap', p) })
+  },
+  {
+    id: 'linnhat',
+    label: 'Linn hi-hat',
+    role: 'hihat',
+    description: 'LinnDrum-style closed hi-hat: a short high-passed noise tick with a few metallic sines.',
+    loops: false,
+    params: [SECS(0.07, 0.5), RATE(32000, 48000), SEED],
+    build: (p) => linnHat({ rate: n(p, 'rate'), seconds: n(p, 'seconds'), open: false, seed: seedOf('linnhat', p) })
+  },
+  {
+    id: 'linnopenhat',
+    label: 'Linn open hi-hat',
+    role: 'openhat',
+    description: 'LinnDrum-style open hi-hat: high-passed noise with a longer ring.',
+    loops: false,
+    params: [SECS(0.3, 1), RATE(32000, 48000), SEED],
+    build: (p) => linnHat({ rate: n(p, 'rate'), seconds: n(p, 'seconds'), open: true, seed: seedOf('linnopenhat', p) })
+  },
+  {
+    id: 'linntom',
+    label: 'Linn tom',
+    role: 'tom',
+    description: 'LinnDrum-style tom: a pitched sine with a downward sweep, an overtone and a click. Base note C-4; play other notes for other pitches.',
+    loops: false,
+    params: [SECS(0.3, 1), RATE(22050, 48000), num('hz', 140, 60, 300, 'Tom pitch.'), SEED],
+    build: (p) => linnTom({ rate: n(p, 'rate'), seconds: n(p, 'seconds'), hz: n(p, 'hz'), seed: seedOf('linntom', p) })
+  },
+  {
+    id: 'linncrash',
+    label: 'Linn crash',
+    role: 'crash',
+    description: 'Crash cymbal: high-passed noise and inharmonic partials under a long decay.',
+    loops: false,
+    params: [SECS(0.9, 2), RATE(22050, 48000), SEED],
+    build: (p) => linnCrash({ rate: n(p, 'rate'), seconds: n(p, 'seconds'), seed: seedOf('linncrash', p) })
   }
 ]
 

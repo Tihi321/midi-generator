@@ -8,7 +8,7 @@ describe('list_samples', () => {
     const t = songSetup({ chip: 'snes' })
     const all = await t.text('list_samples')
     expect(all).toMatch(/Sample slots: none yet/)
-    expect(all).toMatch(/Recipes \(21\)/)
+    expect(all).toMatch(/Recipes \(40\)/)
     for (const r of ['strings', 'choir', 'harp', 'bell', 'kick', 'snare', 'hat', 'crash', 'clap']) expect(all).toContain(`${r} (`)
     expect(all).toContain('ARAM: ~8192 of 65536 bytes used by samples that instruments play (0 sample + 8192 echo buffer)')
     const one = await t.text('list_samples', { recipe: 'kick' })

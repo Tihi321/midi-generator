@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { PRESET_BANKS, createSong, getChipProfile, resolvePreset, missingPresetSample, validateInstrument, aicaAttackSeconds, aicaFallSeconds } from '../../../src/core'
+import { createSong, getChipProfile, resolvePreset, missingPresetSample, validateInstrument, aicaAttackSeconds, aicaFallSeconds } from '../../../src/core'
 import { aicaRamUsage } from '../../../src/core/chips/dreamcast'
 import { writeWav } from '../../../src/core/codecs/wav'
 import { AicaVoice } from '../../../src/core/synth/chips/aica'
@@ -17,6 +17,7 @@ import { aicaByteSize, generateRaw, pcmToBase64, resolveSlot, snrDb } from '../.
 import { ADPCM_STEP_MAX, decodeAicaAdpcm, encodeAicaAdpcm } from '../../../src/core/synth/samplegen/aicaAdpcm'
 import { newChannelControl } from '../../../src/core/synth/sequencer'
 import { midiToHz } from '../../../src/core/synth/tables'
+import { DREAMCAST_BASELINE_PRESETS } from '../../../src/core/instruments/presets/dreamcast'
 import { DC_DSP_PRESETS, type AicaSampleInstrument, type DreamcastConfig, type SampleSlot, type Song } from '../../../src/core/types'
 import { put } from './fixtures'
 
@@ -884,8 +885,8 @@ describe('determinism and block parity', () => {
 })
 
 describe('baseline bank', () => {
-  it('every Dreamcast preset resolves to a playing voice with its mapped AEG', () => {
-    for (const p of PRESET_BANKS.dreamcast) {
+  it('every mapped Dreamcast preset resolves to a playing voice with its mapped AEG', () => {
+    for (const p of DREAMCAST_BASELINE_PRESETS) {
       const inst = resolvePreset('dreamcast', p.id)
       expect(validateInstrument(inst), p.id).toEqual([])
       if (inst.kind !== 'aica-sample') throw new Error('kind')
