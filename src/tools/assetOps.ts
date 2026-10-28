@@ -29,6 +29,7 @@ import {
   formatDrumText,
   formatNote,
   formatTrackerText,
+  instSampleId,
   isDrumRole,
   normalizeCell,
   parseProject,
@@ -289,7 +290,10 @@ export function buildSongAsset(song: Song, info: AssetBuildInfo): Song {
 
 function usedSamples(song: Song, insts: readonly Instrument[]): SampleSlot[] {
   const ids = new Set<string>()
-  for (const i of insts) if ((i.kind === 'snes-sample' || i.kind === 'sample') && i.sample) ids.add(i.sample)
+  for (const i of insts) {
+    const id = instSampleId(i)
+    if (id) ids.add(id)
+  }
   return song.samples.filter((s) => ids.has(s.id)).map((s) => structuredClone(s))
 }
 

@@ -8,6 +8,7 @@ import {
   createSampleCommand,
   generateSample,
   getRecipe,
+  instSampleId,
   instrumentSlug,
   listRecipes,
   normalizeRecipeParams,
@@ -27,7 +28,7 @@ function paramText(r: RecipeInfo): string {
 }
 
 function usedBy(song: Song, id: string): string[] {
-  return song.instruments.flatMap((i: Instrument, n) => ((i.kind === 'snes-sample' || i.kind === 'sample') && i.sample === id ? [`@${n} ${i.name}`] : []))
+  return song.instruments.flatMap((i: Instrument, n) => (instSampleId(i) === id ? [`@${n} ${i.name}`] : []))
 }
 
 function slotLine(song: Song, s: SampleSlot): string {

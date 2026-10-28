@@ -62,6 +62,18 @@ export type VoiceFactory = (args: VoiceArgs) => ChipVoice | null
 
 const registry = new Map<string, VoiceFactory>()
 
+// Chips whose voices make sound. A chip's voice module calls `markChipPlayable` once its voices are real; until then
+// the tools refuse to render it (see `chipIsPlayable` in tools/util.ts) instead of writing silence.
+const playable = new Set<ChipId>(['nes', 'gb', 'genesis', 'snes', 'pce'])
+
+export function markChipPlayable(chip: ChipId): void {
+  playable.add(chip)
+}
+
+export function isChipPlayable(chip: ChipId): boolean {
+  return playable.has(chip)
+}
+
 export function registerVoice(chip: ChipId | '*', kind: ChannelKind, factory: VoiceFactory): void {
   registry.set(`${chip}:${kind}`, factory)
 }

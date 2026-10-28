@@ -35,7 +35,7 @@ import {
   requireInstrumentIndex,
   requireKey
 } from './model'
-import { MAX_INSTRUMENTS, chipSupportsKind, cloneInstrument, instrumentSlug } from './instruments/types'
+import { MAX_INSTRUMENTS, chipSupportsKind, cloneInstrument, instSampleId, instrumentSlug } from './instruments/types'
 import { validateInstrument } from './instruments/validate'
 import { songChannelDefs } from './chips'
 import { requireScale } from './theory/scales'
@@ -543,7 +543,7 @@ export interface SongInfoPatch {
   loop?: { order: number } | null
 }
 
-const STRUCTURAL_CONFIG_KEYS = ['chip', 'dpcm', 'fm6Dac']
+const STRUCTURAL_CONFIG_KEYS = ['chip', 'dpcm', 'fm6Dac', 'voices']
 
 export function createSongInfoCommand(song: Song, patch: SongInfoPatch, label = 'Set song info'): Command {
   const before = cloneSong(song)
@@ -701,7 +701,7 @@ export function createSampleCommand(song: Song, spec: SampleOp): Command & { sam
       }
     }
   }
-  const users = song.instruments.map((x, i) => ({ x, i })).filter(({ x }) => (x.kind === 'snes-sample' || x.kind === 'sample') && x.sample === old.id)
+  const users = song.instruments.map((x, i) => ({ x, i })).filter(({ x }) => instSampleId(x) === old.id)
   if (users.length > 0) {
     throw new Error(
       `Sample "${old.id}" is used by instrument(s) ${users.map(({ x, i }) => `@${i} "${x.name}"`).join(', ')}; delete or change those instruments first.`

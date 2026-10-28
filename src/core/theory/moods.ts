@@ -315,6 +315,18 @@ export const CHIP_IDIOMS: Record<ChipId, string[]> = {
     'C5 and C6 can be noise: use them for hats and snares.',
     'Switch waves with Wxx or the timbre macro for evolving timbres.',
     'Pan is per side (4-bit): mid-hard pans keep the mix open.'
+  ],
+  ps1: [
+    'Everything is a sample (4-bit ADPCM grit): pads and strings with the hardware reverb sound huge; keep bass and kick dry.',
+    'Reverb is global: pick a preset (studio-large, hall, space-echo) and depth, then switch it per voice with E01/E00.',
+    'Sixteen voices in a fixed layout: bass V1, leads V2/V3, pads V4-V6, arp V7, pluck V8, drums V13-V16; 24-voice songs add free voices for doubling.',
+    'Pitch modulation (pmod, from V2 on) and the noise generator give metallic and FM-like colours; watch the 512 KB of SPU RAM.'
+  ],
+  dreamcast: [
+    'Clean 16-bit samples (or 8-bit / ADPCM to save the 2 MB of RAM) on up to 64 slots; every slot has its own envelope, LFO and filter.',
+    'The resonant filter envelope shapes brass swells and bass plucks; the LFO adds vibrato and tremolo.',
+    'The DSP is global: choose chorus-hall for pads and leads, delay or echo for rhythmic repeats, and switch it per slot with E01/E00.',
+    'Sixteen slots in a fixed layout: bass V1, leads V2/V3, pads V4-V6, arp V7, pluck V8, drums V13-V16; 32 and 64 slots add free voices for doubling.'
   ]
 }
 
@@ -374,6 +386,25 @@ function chipPlan(chip: ChipId, seed: MoodSeed): { channels: ChannelPlan[]; idio
         { channel: 'C6', role: 'snare', part: 'snare (noise) / kick' }
       ]
       break
+    case 'ps1':
+    case 'dreamcast': {
+      const fx = chip === 'ps1' ? 'reverb' : 'DSP'
+      channels = [
+        { channel: 'V1', role: bass, part: 'bass line' },
+        { channel: 'V2', role: seed.lead, part: 'lead melody' },
+        { channel: 'V3', role: seed.lead, part: `lead double (an octave down, ${fx} on)` },
+        { channel: 'V4', role: seed.pad, part: `sustained chords, root (${fx} on)` },
+        { channel: 'V5', role: seed.pad, part: `sustained chords, third (${fx} on)` },
+        { channel: 'V6', role: seed.pad, part: `sustained chords, fifth (${fx} on)` },
+        { channel: 'V7', role: seed.harmony, part: 'arpeggio or stabs' },
+        { channel: 'V8', role: 'pluck', part: 'counter-line or pluck' },
+        { channel: 'V13', role: 'kick', part: 'kick' },
+        { channel: 'V14', role: 'snare', part: `snare and claps (${fx} on)` },
+        { channel: 'V15', role: 'hihat', part: 'hats' },
+        { channel: 'V16', role: 'tom', part: 'toms and crash' }
+      ]
+      break
+    }
   }
   return { channels, idioms: CHIP_IDIOMS[chip] }
 }

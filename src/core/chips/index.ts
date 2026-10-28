@@ -8,18 +8,24 @@ import { gbProfile } from './gb'
 import { genesisProfile } from './genesis'
 import { snesProfile } from './snes'
 import { pceProfile } from './pce'
+import { ps1Profile } from './ps1'
+import { dreamcastProfile } from './dreamcast'
 
 export * from './types'
 export { channelDefFor, defineProfile, estimateSampleLength, ruleSeverity, validateCellForChannel, validateCellsFor } from './validate'
 export { ARAM_BYTES, ECHO_BYTES_PER_STEP, defaultSnesConfig, snesAramUsage } from './snes'
 export type { AramUsage } from './snes'
+export { defaultPs1Config, ps1Channels, ps1Voices } from './ps1'
+export { defaultDreamcastConfig, dreamcastChannels, dreamcastVoices } from './dreamcast'
 
 export const CHIP_PROFILES: Record<ChipId, ChipProfile> = {
   nes: nesProfile,
   gb: gbProfile,
   genesis: genesisProfile,
   snes: snesProfile,
-  pce: pceProfile
+  pce: pceProfile,
+  ps1: ps1Profile,
+  dreamcast: dreamcastProfile
 }
 
 export function isChipId(v: unknown): v is ChipId {
@@ -38,7 +44,9 @@ export function requireChipId(ref: string): ChipId {
   if (isChipId(k)) return k
   const aliases: Record<string, ChipId> = {
     famicom: 'nes', nintendo: 'nes', gameboy: 'gb', dmg: 'gb', megadrive: 'genesis', mega: 'genesis', ym2612: 'genesis',
-    sega: 'genesis', supernes: 'snes', sfc: 'snes', spc700: 'snes', pcengine: 'pce', turbografx: 'pce', turbografx16: 'pce', tg16: 'pce', huc6280: 'pce'
+    sega: 'genesis', supernes: 'snes', sfc: 'snes', spc700: 'snes', pcengine: 'pce', turbografx: 'pce', turbografx16: 'pce', tg16: 'pce', huc6280: 'pce',
+    psx: 'ps1', playstation: 'ps1', playstation1: 'ps1', spu: 'ps1',
+    dc: 'dreamcast', aica: 'dreamcast', segadreamcast: 'dreamcast'
   }
   const hit = aliases[k]
   if (hit) return hit

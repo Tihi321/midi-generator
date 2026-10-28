@@ -4,10 +4,10 @@
 import type { Cell, ChipConfig, ChipId, Instrument, SampleSlot, Song } from '../types'
 import { EFFECT_CODES } from '../types'
 import { describeNote } from '../notes'
-import { KINDS_BY_CHIP } from '../instruments/types'
+import { KINDS_BY_CHIP, instSampleId } from '../instruments/types'
 import { validateInstrument } from '../instruments/validate'
 import { getSampleTarget, tryPeekSampleLength } from '../synth/samplegen/bank'
-import { type ChannelDef, type ChipProfile, type Issue, type ValidateScope, forEachPattern } from './types'
+import { type ChannelDef, type ChipProfile, type InstrumentOnChannelRule, type Issue, type ValidateScope, forEachPattern } from './types'
 
 export interface ProfileSpec {
   id: ChipId
@@ -20,6 +20,8 @@ export interface ProfileSpec {
   defaultConfig(): ChipConfig
   /** Chip-specific whole-song checks (ARAM budget, ...). `rule` is the severity for chip-rule violations. */
   extra?(song: Song, scope: ValidateScope, rule: 'error' | 'warning'): Issue[]
+  /** Chip-specific rule for an instrument on a channel (checked for every cell with an instrument). */
+  instrumentOnChannel?: InstrumentOnChannelRule
 }
 
 export interface CellLocation {
@@ -112,6 +114,9 @@ export function validateCellForChannel(
       if (inst.kind === 'gb-pulse' && inst.sweep && def.id !== 'P1') {
         push(rule, `instrument @${cell.inst} "${inst.name}" has a frequency sweep, which only P1 has on the Game Boy; move it to P1 or remove the sweep`, 'inst')
       }
+      if (profile.instrumentOnChannel) {
+        for (const message of profile.instrumentOnChannel(song, def, inst, cell.inst)) push(rule, message, 'inst')
+      }
     }
   }
 
@@ -193,6 +198,7 @@ export function defineProfile(spec: ProfileSpec): ChipProfile {
     notes: spec.notes,
     channels: spec.channels,
     defaultConfig: spec.defaultConfig,
+    ...(spec.instrumentOnChannel ? { instrumentOnChannel: spec.instrumentOnChannel } : {}),
     validate(song, scope = {}) {
       return validateSongWith(profile, spec, song, scope)
     }
@@ -245,9 +251,10 @@ function validateSongWith(profile: ChipProfile, spec: ProfileSpec, song: Song, s
         })
       }
       for (const p of validateInstrument(inst)) out.push({ severity: 'error', message: `instrument @${i} "${inst.name}": ${p}` })
-      if ((inst.kind === 'snes-sample' || inst.kind === 'sample') && !song.samples.some((s) => s.id === inst.sample)) {
+      const sampleId = instSampleId(inst)
+      if (sampleId !== undefined && !song.samples.some((s) => s.id === sampleId)) {
         const ids = song.samples.map((s) => s.id).join(', ') || '(none)'
-        out.push({ severity: 'error', message: `instrument @${i} "${inst.name}" refers to missing sample "${inst.sample}"; existing samples: ${ids}.` })
+        out.push({ severity: 'error', message: `instrument @${i} "${inst.name}" refers to missing sample "${sampleId}"; existing samples: ${ids}.` })
       }
     })
   }

@@ -1,6 +1,6 @@
 // Structural validation of instrument data (ranges, array lengths). Chip/channel rules live in chips/validate.ts.
 
-import type { FmOp, GbEnvelope, Instrument, SnesEnvelope } from '../types'
+import type { AicaSampleInstrument, FmOp, GbEnvelope, Instrument, InstrumentKind, PsxSampleInstrument, SnesEnvelope } from '../types'
 import { INSTRUMENT_KINDS } from './types'
 import { validateMacros } from './macros'
 
@@ -47,6 +47,99 @@ function checkSnesEnv(env: SnesEnvelope | undefined, out: string[]): void {
   } else {
     out.push('env must contain "adsr" or "gain".')
   }
+}
+
+const PSX_ADSR_RANGES: [string, number, number][] = [
+  ['attack', 0, 127], ['decay', 0, 15], ['sustainLevel', 0, 15], ['sustainRate', 0, 127], ['release', 0, 31]
+]
+const AICA_FORMATS = ['pcm16', 'pcm8', 'adpcm']
+const AICA_LFO_WAVES = ['saw', 'square', 'tri', 'noise']
+
+function checkBool(v: unknown, name: string, out: string[]): void {
+  if (typeof v !== 'boolean') out.push(`${name} must be true or false.`)
+}
+
+function checkSampleRef(inst: { sample: unknown; baseNote: unknown; fine?: unknown }, out: string[]): void {
+  if (typeof inst.sample !== 'string' || inst.sample === '') out.push('sample must be a sample slot id.')
+  if (!intIn(inst.baseNote, 0, 127)) out.push(`baseNote ${String(inst.baseNote)} must be a MIDI note 0..127.`)
+  if (inst.fine !== undefined && (typeof inst.fine !== 'number' || !Number.isFinite(inst.fine))) out.push('fine must be a number of cents.')
+}
+
+function checkPsx(inst: PsxSampleInstrument, out: string[]): void {
+  checkSampleRef(inst, out)
+  const a = inst.adsr
+  if (!a || typeof a !== 'object') {
+    out.push('missing "adsr" {attack 0..127, attackExp, decay 0..15, sustainLevel 0..15, sustainRate 0..127, sustainDir "dec"|"inc", sustainExp, release 0..31, releaseExp}.')
+  } else {
+    for (const [k, lo, hi] of PSX_ADSR_RANGES) {
+      const v = (a as unknown as Record<string, unknown>)[k]
+      if (!intIn(v, lo, hi)) out.push(`adsr.${k} ${String(v)} must be an integer ${lo}..${hi}${lo === 0 && k !== 'sustainLevel' ? ' (0 = fastest)' : ''}.`)
+    }
+    if (a.sustainDir !== 'dec' && a.sustainDir !== 'inc') out.push('adsr.sustainDir must be "dec" or "inc".')
+    for (const k of ['attackExp', 'sustainExp', 'releaseExp'] as const) checkBool(a[k], `adsr.${k}`, out)
+  }
+  checkBool(inst.reverb, 'reverb', out)
+  if (inst.pmod !== undefined) checkBool(inst.pmod, 'pmod', out)
+  if (inst.noise !== undefined) {
+    if (!inst.noise || typeof inst.noise !== 'object') out.push('noise must be {shift 0..15, step 0..3}.')
+    else {
+      if (!intIn(inst.noise.shift, 0, 15)) out.push(`noise.shift ${String(inst.noise.shift)} must be an integer 0..15.`)
+      if (!intIn(inst.noise.step, 0, 3)) out.push(`noise.step ${String(inst.noise.step)} must be an integer 0..3.`)
+    }
+  }
+}
+
+function checkAica(inst: AicaSampleInstrument, out: string[]): void {
+  checkSampleRef(inst, out)
+  if (!AICA_FORMATS.includes(inst.format)) out.push(`format must be one of ${AICA_FORMATS.join(', ')}.`)
+  const g = inst.aeg
+  if (!g || typeof g !== 'object') out.push('missing "aeg" {ar, d1r, d2r, rr 0..31 (31 = fastest), dl 0..31, krs? 0..15}.')
+  else {
+    for (const k of ['ar', 'd1r', 'd2r', 'rr', 'dl'] as const) {
+      if (!intIn(g[k], 0, 31)) out.push(`aeg.${k} ${String(g[k])} must be an integer 0..31.`)
+    }
+    if (g.krs !== undefined && !intIn(g.krs, 0, 15)) out.push(`aeg.krs ${String(g.krs)} must be an integer 0..15.`)
+  }
+  const f = inst.filter
+  if (f !== undefined) {
+    if (!f || typeof f !== 'object') out.push('filter must be {q 0..31, flv [5 x 0..8191], far, fd1r, fd2r, frr 0..31}.')
+    else {
+      if (!intIn(f.q, 0, 31)) out.push(`filter.q ${String(f.q)} must be an integer 0..31.`)
+      if (!Array.isArray(f.flv) || f.flv.length !== 5 || !f.flv.every((v) => intIn(v, 0, 8191))) out.push('filter.flv must be exactly 5 integers 0..8191 (FLV0..FLV4).')
+      for (const k of ['far', 'fd1r', 'fd2r', 'frr'] as const) {
+        if (!intIn(f[k], 0, 31)) out.push(`filter.${k} ${String(f[k])} must be an integer 0..31.`)
+      }
+    }
+  }
+  const l = inst.lfo
+  if (l !== undefined) {
+    if (!l || typeof l !== 'object') out.push('lfo must be {freq 0..31, pitchWave, pitchDepth 0..7, ampWave, ampDepth 0..7, reset}.')
+    else {
+      if (!intIn(l.freq, 0, 31)) out.push(`lfo.freq ${String(l.freq)} must be an integer 0..31.`)
+      for (const k of ['pitchWave', 'ampWave'] as const) {
+        if (!AICA_LFO_WAVES.includes(l[k])) out.push(`lfo.${k} must be one of ${AICA_LFO_WAVES.join(', ')}.`)
+      }
+      for (const k of ['pitchDepth', 'ampDepth'] as const) {
+        if (!intIn(l[k], 0, 7)) out.push(`lfo.${k} ${String(l[k])} must be an integer 0..7.`)
+      }
+      checkBool(l.reset, 'lfo.reset', out)
+    }
+  }
+  if (!intIn(inst.send, 0, 15)) out.push(`send ${String(inst.send)} must be an integer 0..15 (DSP send level).`)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Chip-specific instrument rules: a chip module (chips/ps1.ts, chips/dreamcast.ts) registers extra checks for its
+// own kind here, so the shared range checks above never need to change.
+
+export type InstrumentRule = (inst: Instrument) => string[]
+const kindRules = new Map<InstrumentKind, InstrumentRule[]>()
+
+/** Add a check run by validateInstrument after the shared checks of `kind` (returns LLM-readable problems). */
+export function registerInstrumentRule(kind: InstrumentKind, rule: InstrumentRule): void {
+  const list = kindRules.get(kind) ?? []
+  list.push(rule)
+  kindRules.set(kind, list)
 }
 
 /** Problems with the instrument's own data (empty array = valid). Messages are LLM-readable. */
@@ -120,7 +213,14 @@ export function validateInstrument(inst: Instrument): string[] {
       if (typeof inst.sample !== 'string' || inst.sample === '') out.push('sample must be a sample slot id.')
       if (inst.baseNote !== undefined && !intIn(inst.baseNote, 0, 127)) out.push(`baseNote ${inst.baseNote} must be a MIDI note 0..127.`)
       break
+    case 'psx-sample':
+      checkPsx(inst, out)
+      break
+    case 'aica-sample':
+      checkAica(inst, out)
+      break
   }
+  for (const rule of kindRules.get(inst.kind) ?? []) out.push(...rule(inst))
   if ('macros' in inst) out.push(...validateMacros(inst.macros))
   if (inst.gm) {
     if (inst.gm.program !== undefined && !intIn(inst.gm.program, 0, 127)) out.push('gm.program must be 0..127.')

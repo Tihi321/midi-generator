@@ -1,7 +1,7 @@
 // Chip profile contract: what each sound chip's channels can do, and the validation report type.
 // Pure data + types; the generic validation engine lives in ./validate.ts.
 
-import type { ChannelKind, ChipConfig, ChipId, EffectCode, InstrumentKind, PatternKey, Song } from '../types'
+import type { ChannelKind, ChipConfig, ChipId, EffectCode, Instrument, InstrumentKind, PatternKey, Song } from '../types'
 
 export interface Issue {
   severity: 'error' | 'warning'
@@ -55,6 +55,12 @@ export interface ValidateScope {
   sampleSizes?: Record<string, number>
 }
 
+/**
+ * Chip-specific rule for an instrument played on a channel (a pmod voice on V1, ...). Called for every cell that
+ * names an instrument; returns one LLM-readable message per problem, reported with the severity of chip rules.
+ */
+export type InstrumentOnChannelRule = (song: Song, def: ChannelDef, inst: Instrument, instIndex: number) => string[]
+
 export interface ChipProfile {
   id: ChipId
   /** Short label used in messages: "NES", "Game Boy", ... */
@@ -66,6 +72,8 @@ export interface ChipProfile {
   notes: string[]
   channels(cfg: ChipConfig): ChannelDef[]
   defaultConfig(): ChipConfig
+  /** Optional per-chip rule for an instrument on a channel (see InstrumentOnChannelRule). */
+  instrumentOnChannel?: InstrumentOnChannelRule
   /** Check a song against this chip. Severity follows song.authenticity (strict -> errors, relaxed -> warnings). */
   validate(song: Song, scope?: ValidateScope): Issue[]
 }

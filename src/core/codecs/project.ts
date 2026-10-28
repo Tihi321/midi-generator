@@ -6,7 +6,7 @@
 
 import { z } from 'zod'
 import type { Cell, Effect, Instrument, Pattern, PatternKey, SampleSlot, Song } from '../types'
-import { CHIP_IDS, EFFECT_CODES, ROLES } from '../types'
+import { CHIP_IDS, DC_DSP_PRESETS, EFFECT_CODES, PS1_REVERB_PRESETS, ROLES } from '../types'
 import { createEmptyPattern, normalizeCell } from '../model'
 import { normalizePitchClass } from '../notes'
 import { formatEffect, parseEffectToken } from './common'
@@ -54,6 +54,19 @@ const snesEnv = z.union([
   z.object({ gain: z.object({ mode: z.enum(['direct', 'linear-dec', 'exp-dec', 'linear-inc', 'bent-inc']), rate: z.number() }) })
 ])
 
+const psxAdsr = z.object({
+  attack: z.number(), attackExp: z.boolean(), decay: z.number(), sustainLevel: z.number(), sustainRate: z.number(),
+  sustainDir: z.enum(['dec', 'inc']), sustainExp: z.boolean(), release: z.number(), releaseExp: z.boolean()
+})
+const aicaLfoWave = z.enum(['saw', 'square', 'tri', 'noise'])
+const aicaFilter = z.object({
+  q: z.number(), flv: z.tuple([z.number(), z.number(), z.number(), z.number(), z.number()]),
+  far: z.number(), fd1r: z.number(), fd2r: z.number(), frr: z.number()
+})
+const aicaLfo = z.object({
+  freq: z.number(), pitchWave: aicaLfoWave, pitchDepth: z.number(), ampWave: aicaLfoWave, ampDepth: z.number(), reset: z.boolean()
+})
+
 const instrumentSchema = z.discriminatedUnion('kind', [
   z.object({ ...base, kind: z.enum(['nes-pulse', 'nes-tri', 'nes-noise', 'psg', 'psg-noise']), macros, noiseMode: z.enum(['white', 'periodic']).optional() }),
   z.object({
@@ -71,7 +84,17 @@ const instrumentSchema = z.discriminatedUnion('kind', [
     ...base, kind: z.literal('snes-sample'), sample: z.string(), baseNote: z.number(), env: snesEnv, echo: z.boolean(),
     fine: z.number().optional(), macros: macros.optional()
   }),
-  z.object({ ...base, kind: z.literal('sample'), sample: z.string(), baseNote: z.number().optional(), macros: macros.optional() })
+  z.object({ ...base, kind: z.literal('sample'), sample: z.string(), baseNote: z.number().optional(), macros: macros.optional() }),
+  z.object({
+    ...base, kind: z.literal('psx-sample'), sample: z.string(), baseNote: z.number(), fine: z.number().optional(), adsr: psxAdsr,
+    reverb: z.boolean(), pmod: z.boolean().optional(), noise: z.object({ shift: z.number(), step: z.number() }).optional(), macros: macros.optional()
+  }),
+  z.object({
+    ...base, kind: z.literal('aica-sample'), sample: z.string(), baseNote: z.number(), fine: z.number().optional(),
+    format: z.enum(['pcm16', 'pcm8', 'adpcm']),
+    aeg: z.object({ ar: z.number(), d1r: z.number(), d2r: z.number(), rr: z.number(), dl: z.number(), krs: z.number().optional() }),
+    filter: aicaFilter.optional(), lfo: aicaLfo.optional(), send: z.number(), macros: macros.optional()
+  })
 ])
 
 const sampleSchema = z.object({
@@ -92,7 +115,20 @@ const chipConfigSchema = z.discriminatedUnion('chip', [
     chip: z.literal('snes'),
     echo: z.object({ delay: z.number(), feedback: z.number(), volL: z.number(), volR: z.number(), fir: z.array(z.number()) })
   }),
-  z.object({ chip: z.literal('pce') })
+  z.object({ chip: z.literal('pce') }),
+  z.object({
+    chip: z.literal('ps1'),
+    voices: z.union([z.literal(16), z.literal(24)]),
+    reverb: z.object({ preset: z.enum(PS1_REVERB_PRESETS), depth: z.number(), inputVol: z.number() })
+  }),
+  z.object({
+    chip: z.literal('dreamcast'),
+    voices: z.union([z.literal(16), z.literal(32), z.literal(64)]),
+    dsp: z.object({
+      preset: z.enum(DC_DSP_PRESETS), mix: z.number(), time: z.number(), feedback: z.number(),
+      chorusRate: z.number(), chorusDepth: z.number(), delayMs: z.number()
+    })
+  })
 ])
 
 const rowEntry = z.array(z.union([z.number(), z.string(), z.null()])).min(4)

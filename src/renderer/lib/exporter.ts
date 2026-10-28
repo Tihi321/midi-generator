@@ -57,11 +57,25 @@ export interface ExportEstimate {
   loopPoints: boolean
 }
 
+/** Ids of the shared effect-bus stems a stems export adds: SNES echo, PS1 reverb, Dreamcast DSP. */
+export function auxStemIds(song: Song): string[] {
+  switch (song.chip) {
+    case 'snes':
+      return ['_echo']
+    case 'ps1':
+      return ['_reverb']
+    case 'dreamcast':
+      return ['_dsp']
+    default:
+      return []
+  }
+}
+
 /** What an export would produce, without rendering (shown in the dialog). */
 export function estimateExport(song: Song, s: ExportSettings): ExportEstimate {
   const o = renderOptionsFor(s)
   const tl = buildTimeline(song)
-  const files = 1 + (s.stems ? song.channels.length + (song.chip === 'snes' ? 1 : 0) : 0) // SNES adds the _echo stem
+  const files = 1 + (s.stems ? song.channels.length + auxStemIds(song).length : 0)
   if (!tl.isLooping) return { looping: false, seconds: tl.introSeconds + 0.5, files, loopPoints: false }
   if ((o.fadeOutSec ?? 0) > 0) return { looping: true, seconds: tl.introSeconds + (o.loops ?? 1) * tl.loopSeconds + (o.fadeOutSec ?? 0), files, loopPoints: false }
   return { looping: true, seconds: tl.introSeconds + (o.loops ?? 1) * tl.loopSeconds, files, loopPoints: true }

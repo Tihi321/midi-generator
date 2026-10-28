@@ -17,6 +17,17 @@ export interface ChipSlots {
   drumHigh: string
 }
 
+// PS1 / Dreamcast: bass V1, lead V2, harmony V3..V12, drums V13..V16 (the extra voices of 24/32/64-voice songs are not used)
+const SAMPLE_CHIP_PLAN = {
+  bass: 'V1',
+  lead: 'V2',
+  harmony: ['V3', 'V4', 'V5', 'V6', 'V7', 'V8', 'V9', 'V10', 'V11', 'V12'],
+  drumLow: 'V13',
+  drumHigh: 'V14',
+  drumChannels: ['V13', 'V14', 'V15', 'V16'],
+  spare: ['V15', 'V16']
+}
+
 const PLANS: Record<ChipId, (cfg: ChipConfig) => { bass: string; lead: string; harmony: string[]; drumLow: string; drumHigh: string; drumChannels: string[]; spare: string[] }> = {
   nes: (cfg) => ({
     bass: 'TR',
@@ -41,7 +52,9 @@ const PLANS: Record<ChipId, (cfg: ChipConfig) => { bass: string; lead: string; h
     }
   },
   snes: () => ({ bass: 'V1', lead: 'V4', harmony: ['V2', 'V3', 'V5', 'V6'], drumLow: 'V7', drumHigh: 'V8', drumChannels: ['V7', 'V8'], spare: ['V7', 'V8'] }),
-  pce: () => ({ bass: 'C1', lead: 'C2', harmony: ['C3', 'C4'], drumLow: 'C5', drumHigh: 'C6', drumChannels: ['C5', 'C6'], spare: ['C5', 'C6'] })
+  pce: () => ({ bass: 'C1', lead: 'C2', harmony: ['C3', 'C4'], drumLow: 'C5', drumHigh: 'C6', drumChannels: ['C5', 'C6'], spare: ['C5', 'C6'] }),
+  ps1: () => SAMPLE_CHIP_PLAN,
+  dreamcast: () => SAMPLE_CHIP_PLAN
 }
 
 /** Channel plan for a chip. With `reserveDrums` false the drum-capable channels of SNES/PCE join the melodic pool. */

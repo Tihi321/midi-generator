@@ -4,6 +4,7 @@ import {
   peekPattern, requireChannel, requireInstrument, requireOrder, rowSeconds, songRows, songSeconds, songTicks, summarizeSong,
   tickSeconds, normalizeCell, cellsEqual, isCellEmpty
 } from '../../src/core/model'
+import { createSongInfoCommand } from '../../src/core/commands'
 import { CHIP_IDS } from '../../src/core/types'
 import { songWithPresets } from './helpers'
 
@@ -14,7 +15,9 @@ describe('createSong', () => {
       gb: 'P1,P2,WV,NO',
       genesis: 'F1,F2,F3,F4,F5,F6,S1,S2,S3,NO',
       snes: 'V1,V2,V3,V4,V5,V6,V7,V8',
-      pce: 'C1,C2,C3,C4,C5,C6'
+      pce: 'C1,C2,C3,C4,C5,C6',
+      ps1: 'V1,V2,V3,V4,V5,V6,V7,V8,V9,V10,V11,V12,V13,V14,V15,V16',
+      dreamcast: 'V1,V2,V3,V4,V5,V6,V7,V8,V9,V10,V11,V12,V13,V14,V15,V16'
     }
     for (const chip of CHIP_IDS) {
       const s = createSong({ chip })
@@ -35,6 +38,36 @@ describe('createSong', () => {
     const sn = createSong({ chip: 'snes', chipConfig: { echo: { delay: 2 } } as never })
     expect((sn.chipConfig as { echo: { delay: number; fir: number[] } }).echo.delay).toBe(2)
     expect((sn.chipConfig as { echo: { delay: number; fir: number[] } }).echo.fir).toHaveLength(8)
+  })
+  it('creates PS1 and Dreamcast songs with their voice counts and merged nested config', () => {
+    const ps1 = createSong({ chip: 'ps1', chipConfig: { voices: 24, reverb: { preset: 'hall' } } as never })
+    expect(ps1.channels).toHaveLength(24)
+    expect(ps1.channels[23]!.id).toBe('V24')
+    expect(ps1.channels.every((c) => c.kind === 'sample')).toBe(true)
+    expect(ps1.chipConfig).toEqual({ chip: 'ps1', voices: 24, reverb: { preset: 'hall', depth: 0.5, inputVol: 1 } })
+    expect(createSong({ chip: 'ps1' }).channels).toHaveLength(16)
+    const dc = createSong({ chip: 'dreamcast', chipConfig: { voices: 64, dsp: { preset: 'delay', delayMs: 450 } } as never })
+    expect(dc.channels).toHaveLength(64)
+    expect(dc.channels[63]!.id).toBe('V64')
+    expect(dc.chipConfig).toMatchObject({ chip: 'dreamcast', voices: 64, dsp: { preset: 'delay', delayMs: 450, mix: 0.35 } })
+    expect(createSong({ chip: 'dreamcast', chipConfig: { voices: 32 } as never }).channels).toHaveLength(32)
+    expect(createSong({ chip: 'dreamcast' }).channels).toHaveLength(16)
+  })
+  it('refuses a voice count the chip does not have', () => {
+    expect(() => createSong({ chip: 'ps1', chipConfig: { voices: 20 } as never })).toThrow(/PS1 voices must be 16 or 24/)
+    expect(() => createSong({ chip: 'ps1', chipConfig: { voices: 32 } as never })).toThrow(/voices/)
+    expect(() => createSong({ chip: 'dreamcast', chipConfig: { voices: 8 } as never })).toThrow(/Dreamcast voices must be 16, 32 or 64/)
+  })
+  it('voices is structural in set_song_info; reverb and dsp merge field-wise', () => {
+    const ps1 = createSong({ chip: 'ps1' })
+    expect(() => createSongInfoCommand(ps1, { chipConfig: { voices: 24 } })).toThrow(/voices.*cannot be edited in place.*new_song/)
+    createSongInfoCommand(ps1, { chipConfig: { reverb: { preset: 'space-echo' } } }).apply(ps1)
+    expect(ps1.chipConfig).toEqual({ chip: 'ps1', voices: 16, reverb: { preset: 'space-echo', depth: 0.5, inputVol: 1 } })
+    const dc = createSong({ chip: 'dreamcast' })
+    expect(() => createSongInfoCommand(dc, { chipConfig: { voices: 32 } })).toThrow(/cannot be edited in place/)
+    createSongInfoCommand(dc, { chipConfig: { dsp: { mix: 0.6 } } }).apply(dc)
+    expect(dc.chipConfig).toMatchObject({ voices: 16, dsp: { preset: 'chorus-hall', mix: 0.6, feedback: 0.35 } })
+    expect(() => createSongInfoCommand(dc, { chipConfig: { echo: {} } })).toThrow(/Unknown chipConfig field "echo" for dreamcast/)
   })
   it('rejects invalid options with a helpful message', () => {
     expect(() => createSong({ chip: 'nes', bpm: 5 })).toThrow(/bpm/)

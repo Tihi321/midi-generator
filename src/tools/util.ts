@@ -2,7 +2,7 @@
 
 import { z } from 'zod'
 import type { ToolResult } from '../shared/tools'
-import { PRESET_BANKS, findChannelIndex, requireChannelIndex } from '../core'
+import { PRESET_BANKS, findChannelIndex, isChipPlayable, requireChannelIndex } from '../core'
 import type { ChipId, Song } from '../core'
 import { type ToolContext, textResult } from './registry'
 import type { SongSession } from './session'
@@ -91,9 +91,9 @@ export function pickChannels(song: Song, channels: Array<string | number> | unde
   return out
 }
 
-/** True when the chip has a sound engine and a preset bank in this build (NES and Game Boy first). */
+/** True when the chip has a preset bank and its voices make sound (the PS1 and Dreamcast voice modules call markChipPlayable). */
 export function chipIsPlayable(chip: ChipId): boolean {
-  return PRESET_BANKS[chip].length > 0
+  return PRESET_BANKS[chip].length > 0 && isChipPlayable(chip)
 }
 
 export function chipNotReadyNote(chip: ChipId): string {
