@@ -264,6 +264,30 @@ describe('composer variation', () => {
   })
 })
 
+describe('compose_track tool with synth moods', () => {
+  it('opens a synthwave song on the PS1 and an outrun song on the Dreamcast by default', async () => {
+    const t = songSetup()
+    const a = lastJson(await t.ok('compose_track', { mood: 'synthwave', seed: 1, bars: 4 }))
+    expect(a).toMatchObject({ chip: 'ps1', mood: 'synthwave', bars: 4 })
+    expect(t.session.song.chip).toBe('ps1')
+    const b = lastJson(await t.ok('compose_track', { mood: 'drive', seed: 1, bars: 4 })) // alias of outrun
+    expect(b).toMatchObject({ chip: 'dreamcast', mood: 'outrun' })
+    const c = lastJson(await t.ok('compose_track', { mood: 'darkwave', chip: 'snes', seed: 1, bars: 4 }))
+    expect(c).toMatchObject({ chip: 'snes', mood: 'darkwave' })
+    const bad = await t.call('compose_track', { mood: 'outrun', chip: 'dreamcast', seed: 1, instruments: { V2: 'ps1.lead.saw-detuned' } })
+    expect(bad.isError).toBe(true)
+  })
+
+  it('every synth mood composes with an intro and a variation on all seven chips', () => {
+    for (const chip of CHIPS) {
+      for (const mood of ['synthwave', 'outrun', 'darkwave', 'dreamwave']) {
+        const r = composeSong({ mood, chip, seed: 2, bars: 4, intro: 2, variation: 3 })
+        expect(validateSong(r.song).filter((i) => i.severity === 'error'), `${mood}/${chip}`).toEqual([])
+      }
+    }
+  })
+})
+
 describe('compose_track tool', () => {
   it('opens the new song, returns the JSON object last and keeps the replaced song', async () => {
     const t = songSetup()

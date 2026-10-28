@@ -281,6 +281,51 @@ const SEEDS: MoodSeed[] = [
       'A very soft, slow kick pulse (or nothing) keeps time without driving.',
       'Pad and choir sounds with slow attacks make the harmony breathe.'
     ]
+  },
+  // ---- synth moods (MDI-10): default chips are PS1 and Dreamcast; they also work on the other chips
+  {
+    id: 'synthwave', name: 'Synthwave', description: '80s neon night-drive: detuned saw lead over a plucky 16th arpeggio, straight eighth bass, gated-reverb snare.',
+    bpm: [96, 118], keys: ['A', 'E', 'D', 'F#', 'C'], scales: ['minor', 'dorian'], lead: 'lead', harmony: 'arp', pad: 'pad',
+    sections: [['Intro', 4], ['A', 8], ['B', 8], ['A', 8], ['Bridge', 4]], loopFrom: 'A',
+    techniques: [
+      'Detuned saw lead an octave above the arp; let the notes ring and answer a 2-bar phrase with a variation.',
+      'Gated snare on 2 and 4, kick on 1, the "and" of 2 and 3, eighth-note hats, a crash on the first bar of each phrase.',
+      'Sidechain feel: pads enter on the off-beat just after the kick, so the volume seems to duck on every kick hit.',
+      'Chords i-bVI-bIII-bVII (or i-bVII-bVI-bVII), one chord per bar; the bass keeps straight eighths on the root with an octave on the last one.'
+    ]
+  },
+  {
+    id: 'outrun', name: 'Outrun', description: 'Driving chase music: rolling 16th bass, four on the floor, bright brass stabs and a soaring lead.',
+    bpm: [108, 118], keys: ['A', 'E', 'F#', 'D'], scales: ['minor', 'phrygian', 'dorian'], lead: 'lead', harmony: 'arp', pad: 'pad',
+    sections: [['Intro', 4], ['A', 8], ['B', 8], ['A', 8], ['B', 8]], loopFrom: 'A',
+    techniques: [
+      'Rolling sixteenth-note bass on the root with an octave pop; it never stops and keeps the car moving.',
+      'Kick on every beat, open hat on the off-beats, snare (gated) on 2 and 4; a tom run fills the last bar of a phrase.',
+      'Stab brass on the chord changes (and a push on the last 8th before the next chord); leave space after each stab.',
+      'Lead in long, soaring notes that climb to the fifth; double it an octave down with a short delay for the chorus-style width.'
+    ]
+  },
+  {
+    id: 'darkwave', name: 'Darkwave', description: 'Cold and brooding: minor and phrygian colour, steady eighth bass, sparse icy arps and a big hall reverb.',
+    bpm: [88, 112], keys: ['E', 'A', 'D', 'C#'], scales: ['minor', 'phrygian', 'harmonic-minor'], lead: 'lead', harmony: 'arp', pad: 'strings',
+    sections: [['Intro', 4], ['A', 8], ['B', 8], ['A', 8], ['Bridge', 4]], loopFrom: 'A',
+    techniques: [
+      'Keep the bass on straight eighths (an FM or analog bass), root only, with the octave on the last eighth.',
+      'Sparse, cold arps: soft sixteenths high above the lead; let the pads hold the harmony with a long reverb tail.',
+      'Chords i-bII-bVI-bVII or i-bVII-bVI-bVII; use the b2 (phrygian) and the leading tone (harmonic minor) for tension.',
+      'Gated snare on 2 and 4 with a pulsing kick; keep hats on the off-beats and leave the fills small.'
+    ]
+  },
+  {
+    id: 'dreamwave', name: 'Dreamwave', description: 'Hazy, nostalgic and slow: maj7 colour, lush chorus pads, a half-time beat and a floating lead.',
+    bpm: [80, 100], keys: ['F', 'C', 'G', 'D#'], scales: ['dorian', 'minor'], lead: 'lead', harmony: 'arp', pad: 'pad',
+    sections: [['Intro', 4], ['A', 8], ['B', 8], ['A', 8], ['Bridge', 4]], loopFrom: 'A',
+    techniques: [
+      'Slow pads with maj7 and 7th colour (i7, bVImaj7, bIIImaj7, bVII), one chord every two bars, with a big chorus.',
+      'Half-time drums: snare only on beat 3, a soft kick, toms in the fills.',
+      'An electric-piano pad doubles the chords; a detuned saw lead floats above in long notes.',
+      'Keep the bass slow (root and fifth) so the pads and the chorus carry the sound.'
+    ]
   }
 ]
 
@@ -447,7 +492,9 @@ const MOOD_ALIASES: Record<string, string> = {
   intro: 'title', store: 'shop', market: 'shop', water: 'underwater', ocean: 'underwater', sea: 'underwater', arabian: 'desert',
   egypt: 'desert', fortress: 'castle', gothic: 'castle', melancholy: 'sad', sorrow: 'sad', emotional: 'sad',
   serene: 'peaceful', tranquil: 'peaceful', quiet: 'peaceful', sleep: 'lullaby', bedtime: 'lullaby', dreamy: 'ambient', drone: 'ambient',
-  mysterious: 'mysterious-calm', enigmatic: 'mysterious-calm', curious: 'mysterious-calm'
+  mysterious: 'mysterious-calm', enigmatic: 'mysterious-calm', curious: 'mysterious-calm',
+  retrowave: 'synthwave', synth: 'synthwave', '80s': 'synthwave', chase: 'outrun', drive: 'outrun', coldwave: 'darkwave', goth: 'darkwave',
+  chillwave: 'dreamwave', dreamsynth: 'dreamwave'
 }
 
 export function findMood(ref: string): MoodRecipe | undefined {

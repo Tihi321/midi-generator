@@ -93,7 +93,21 @@ export const DRUM_STYLES: DrumStyle[] = [
   }, FILL_TOM),
   S('title-pulse', 'Title pulse', 'Gentle kick with offbeat hats for a title screen.', ['title', 'overworld'], [90, 120], {
     kick: 'x.......x.......', hihat: '..x...x...x...x.', snare: '....x.......x...'
-  })
+  }),
+  // ---- synth moods (MDI-10): tagged only with synth moods, so they are the only styles of those moods (the first is the composer's pick).
+  // The crash lane is on every bar here; the synth composer plays it on the first bar of each 4-bar phrase.
+  S('synthwave-gated', 'Synthwave gated', 'Kick on 1, the "and" of 2 and 3, gated snare on 2 and 4, eighth-note hats, a crash on the first bar of a phrase; toms in the fill.', ['synthwave'], [96, 118], {
+    kick: 'x.....x.x.......', snare: '....x.......x...', hihat: 'x.x.x.x.x.x.x.x.', crash: 'x...............'
+  }, { snare: '....x...........', tom: '........x.x.xxx.' }),
+  S('outrun-four', 'Outrun four', 'Four on the floor, sixteenth hats and open hats on the off-beats, gated snare on 2 and 4: the car chase.', ['outrun', 'synthwave'], [108, 128], {
+    kick: 'x...x...x...x...', snare: '....x.......x...', hihat: 'xxxxxxxxxxxxxxxx', openhat: '..x...x...x...x.', crash: 'x...............'
+  }, FILL_TOM),
+  S('darkwave-pulse', 'Darkwave pulse', 'Steady kick on every beat, gated snare on 2 and 4, off-beat hats: cold and relentless.', ['darkwave'], [88, 112], {
+    kick: 'x...x...x...x...', snare: '....x.......x...', hihat: '..x...x...x...x.', crash: 'x...............'
+  }, FILL_TOM),
+  S('dreamwave-half', 'Dreamwave half-time', 'Half-time: soft kick on 1 and the "and" of 3, snare only on beat 3, quiet eighth hats; toms in the fill.', ['dreamwave'], [80, 100], {
+    kick: 'x.........x.....', snare: '........x.......', hihat: 'x.x.x.x.x.x.x.x.', crash: 'x...............'
+  }, { snare: '........x.......', tom: '..........x.x.xx', kick: 'x...............' })
 ]
 
 export function findDrumStyle(id: string): DrumStyle | undefined {
