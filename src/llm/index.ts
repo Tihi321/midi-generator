@@ -27,13 +27,14 @@ export { ModelRouter, isContextError } from './router'
 export type { CandidateOptions, RoutedEvent, RoutedRequest, RouterOptions } from './router'
 export { chatJson, extractJson, jsonSchemaOf } from './json'
 export type { JsonResult } from './json'
-export { actionSchema, jsonModeInstructions, runAgent, toolResultContent } from './agent'
+export { MAX_RESULT_NUDGES, actionSchema, jsonModeInstructions, runAgent, toolResultContent } from './agent'
 export type {
   AgentEvent,
   AgentModelSource,
   AgentResult,
   AgentStopReason,
   ModelCapabilities,
+  ResultCheck,
   RunAgentOptions,
   ToolHost,
   ToolResult

@@ -9,9 +9,10 @@
 
 import { randomUUID } from 'node:crypto'
 import { runAgent } from '../llm'
-import type { AgentEvent, AgentModelSource, AgentResult, ChatMessage, ToolHost as LlmToolHost, ToolResult as LlmToolResult } from '../llm'
+import type { AgentEvent, AgentModelSource, AgentResult, ChatMessage, ResultCheck, ToolHost as LlmToolHost, ToolResult as LlmToolResult } from '../llm'
 import { AGENT_TURN_LABEL_PREFIX, type AgentSendResponse, type AgentState, type AgentUiEvent, type AgentUsage, type ChatSummary, type OpenedChat } from '../shared/agent'
 import type { ToolHost, ToolResult, TurnToolHost } from '../shared/tools'
+import { createDefaultRegistry } from '../tools/defs'
 import type { ChatHistoryStore } from './chatHistory'
 
 export const MAX_AGENT_STEPS = 25
@@ -29,6 +30,37 @@ const WRITING_TOOL_NAMES = new Set(['write_pattern', 'write_melody', 'write_drum
 
 export function isWritingTool(name: string): boolean {
   return WRITING_TOOL_NAMES.has(name)
+}
+
+let mutatingTools: Set<string> | null = null
+
+/** Tools that should change the open song: every registry tool that is not read-only (undo/redo and delete_song excepted: they do not make music). */
+export function isSongMutatingTool(name: string): boolean {
+  mutatingTools ??= new Set(
+    createDefaultRegistry()
+      .list()
+      .filter((t) => !t.readOnly && !t.noTransaction && t.name !== 'delete_song')
+      .map((t) => t.name)
+  )
+  return mutatingTools.has(name)
+}
+
+/**
+ * The end-of-run result check of the agent (MDI-09): the song as `get_song` describes it (timing, orders, note counts per channel,
+ * instruments), without the cursor and undo lines. Read from app state through the host, never from the model.
+ */
+export function songResultCheck(host: ToolHost, signal?: AbortSignal): ResultCheck {
+  return {
+    mutates: isSongMutatingTool,
+    async snapshot() {
+      const r = await host.execute('get_song', {}, signal ?? new AbortController().signal)
+      if (r.isError) throw new Error('get_song failed')
+      return textOf(r)
+        .split('\n')
+        .filter((l) => !l.startsWith('Cursor:') && !l.startsWith('Undo available') && !l.startsWith('Nothing to undo'))
+        .join('\n')
+    }
+  }
 }
 
 /** Show the order row a write went to (when it said which); otherwise the whole song (the tool caps the size). */
@@ -257,6 +289,7 @@ export class AgentRunner {
             ? [{ type: 'text', text }, { type: 'text', text: 'Preview images of the style reference assets (same order as in the style context):' }, ...styleImages]
             : text,
         host,
+        resultCheck: songResultCheck(bridge, abort.signal),
         maxSteps: this.opts.maxSteps ?? MAX_AGENT_STEPS,
         signal: abort.signal,
         onEvent: (ev) => this.forward(ev, send)

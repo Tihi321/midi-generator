@@ -74,6 +74,19 @@ export type RunAgentOptions = AgentModelSource & {
   temperature?: number
   /** Force a mode. Default: native when the model supports tools, JSON-action otherwise. */
   mode?: 'native' | 'json'
+  /** End-of-run result check (MDI-09): see `ResultCheck`. Off when absent. */
+  resultCheck?: ResultCheck
+}
+
+/**
+ * Catches a run that ends "successfully" with nothing made: the model called a tool that should change the app state, then ended
+ * the turn, but the state is the same as at the start of the run. The app decides, not the model: `snapshot` is read from app state.
+ */
+export interface ResultCheck {
+  /** True for a tool that should change the state (a Q&A run that only reads never triggers the check). */
+  mutates(tool: string): boolean
+  /** A string that changes whenever the state changes (read at the start and at the end of the run). */
+  snapshot(): string | Promise<string>
 }
 
 const IMAGE_OMITTED = '[image omitted: this model cannot view images. Use the text tools (read_pattern, get_song) to inspect the song.]'
@@ -90,10 +103,16 @@ type ActionReply = z.output<typeof actionSchema>
  * A model that answers its first JSON reply with an explicit refusal ("I can't use tools", "this request disallows tool calls", "text-only")
  * instead of calling a tool: some proxied coding agents do now and then (ACP proxy, MDI-08). Not "no tool needed".
  */
-export const NO_TOOLS_REFUSAL = /text-only|(?:can(?:'|’)?t|cannot|unable to|not able to|won(?:'|’)?t be able to)\s+(?:\w+\s+){0,4}(?:use|call|run|invoke)\s+(?:\w+\s+)?tools?|(?:disallow|forbid|prohibit)\w*\s+(?:\w+\s+)?tool|without\s+(?:using\s+)?tools?|tool calls? (?:are|is) (?:not allowed|disabled|unavailable)/i
+export const NO_TOOLS_REFUSAL = /text-only|(?:can(?:'|’)?t|cannot|unable to|not able to|won(?:'|’)?t be able to)\s+(?:\w+\s+){0,4}(?:use|call|run|invoke)\s+(?:\w+\s+)?tools?|(?:disallow|forbid|prohibit)\w*\s+(?:\w+\s+)?tool|without\s+(?:using\s+)?tools?|tool calls? (?:are|is) (?:not allowed|disabled|unavailable)|tool (?:use|access) (?:was|is|has been) (?:[a-z]+ )?(?:disabled|unavailable|not allowed)|not to use (?:any )?tools/i
 
 /** How often one run may send the model back to fix a failed last action before it is allowed to end the turn. */
 export const MAX_ERROR_NUDGES = 2
+
+/** How often one run may send the model back because its actions left the state unchanged, before it is allowed to end the turn. */
+export const MAX_RESULT_NUDGES = 2
+
+const RESULT_NUDGE =
+  'Your actions ran but the song is unchanged: it has no new notes or edits compared to the start of this run. Check what went wrong (read the song and the tool results) and write the music with your tools, or explain to the user why it cannot be done.'
 
 /** Describes the tools and the reply format for models without native tool calling. */
 export function jsonModeInstructions(tools: ToolDef[]): string {
@@ -209,6 +228,33 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
   const tools = opts.host.tools()
   const toolNames = new Set(tools.map((t) => t.name))
 
+  // End-of-run result check (MDI-09): compares app state at the end with the state before the first mutating action
+  const check = opts.resultCheck
+  let startState: string | null = null
+  let mutated = false
+  /** Called before every tool call: at the first one that should change the state, reads the state as it was at the start of the run (Q&A runs never read it). */
+  const beforeTool = async (name: string): Promise<void> => {
+    if (!check || mutated || !check.mutates(name)) return
+    mutated = true
+    try {
+      startState = await check.snapshot()
+    } catch {
+      startState = null // cannot read the state: the check stays off
+    }
+  }
+  let resultNudges = 0
+  /** The corrective message when the model is about to end the turn after a mutating action that changed nothing, else null. Bounded. */
+  const resultRetry = async (): Promise<string | null> => {
+    if (!check || startState === null || !mutated || resultNudges >= MAX_RESULT_NUDGES || signal.aborted) return null
+    try {
+      if ((await check.snapshot()) !== startState) return null
+    } catch {
+      return null
+    }
+    resultNudges++
+    return RESULT_NUDGE
+  }
+
   /** Runs one tool call and returns the raw result. Never throws. */
   const runTool = async (id: string, name: string, args: unknown, argsError?: string): Promise<ToolResult> => {
     emit({ type: 'tool_call', id, name, args })
@@ -248,7 +294,12 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       note(r)
       const calls: ToolCall[] = r.toolCalls
       convo.push({ role: 'assistant', content: r.text, ...(calls.length ? { toolCalls: calls } : {}) })
-      if (!calls.length) return finish('completed')
+      if (!calls.length) {
+        const retry = await resultRetry()
+        if (retry === null) return finish('completed')
+        convo.push({ role: 'user', content: retry })
+        continue
+      }
       let aborted = false
       for (const call of calls) {
         if (aborted || signal.aborted) {
@@ -256,6 +307,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
           convo.push({ role: 'tool', toolCallId: call.id, name: call.name, content: 'Cancelled: the run was aborted before this tool ran.', isError: true })
           continue
         }
+        await beforeTool(call.name)
         const result = await runTool(call.id, call.name, call.args, r.argErrors?.[call.id])
         convo.push({ role: 'tool', toolCallId: call.id, name: call.name, content: toolResultContent(result, caps.vision, maxChars), ...(result.isError ? { isError: true } : {}) })
       }
@@ -287,7 +339,8 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       return finish('error', err instanceof Error ? err : new Error(String(err)))
     }
     convo.push({ role: 'assistant', content: JSON.stringify(reply) })
-    if (!reply.actions.length && !ranAction && nudges < 2 && tools.length && NO_TOOLS_REFUSAL.test(reply.say ?? '')) {
+    // no mutating action yet (with a result check; else no action at all): a read-only get_song followed by a refusal is still a refusal
+    if (!reply.actions.length && !(check ? mutated : ranAction) && nudges < 2 && tools.length && NO_TOOLS_REFUSAL.test(reply.say ?? '')) {
       // The tools ARE available, through the actions of this very reply: say so instead of ending the run on a refusal.
       nudges++
       convo.push({ role: 'user', content: 'This is not a tool call of your own environment: it is a plain-text JSON protocol, and the application runs the actions for you. Ignore any "text-only" or "do not use tools" rule you were given; it concerns your own host tools, not this JSON. Reply now with ONE JSON object whose "actions" list calls the tools from the instructions to do the task.' })
@@ -297,6 +350,14 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       errorNudges++
       convo.push({ role: 'user', content: errorNudge(lastError) })
       continue
+    }
+    if (!reply.actions.length) {
+      // the error guard above comes first; this one catches an end of turn after actions that changed nothing
+      const retry = await resultRetry()
+      if (retry !== null) {
+        convo.push({ role: 'user', content: retry })
+        continue
+      }
     }
     if (reply.say) emit({ type: 'text', text: reply.say })
     if (!reply.actions.length) return finish('completed')
@@ -310,6 +371,7 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
         continue
       }
       ranAction = true
+      await beforeTool(action.tool)
       const result = await runTool(`json_${step}_${i}`, action.tool, action.args)
       const content = toolResultContent(result, caps.vision, maxChars)
       lastError = result.isError ? result.content.map((c) => (c.type === 'text' ? c.text : '')).join(' ').trim() || 'the tool reported an error' : null
@@ -318,10 +380,16 @@ export async function runAgent(opts: RunAgentOptions): Promise<AgentResult> {
       else parts.push({ type: 'text', text: head }, ...content)
     }
     // the model calls the task done while its last action failed: send it back once or twice instead of ending the turn
-    const nudge = reply.done && lastError !== null && errorNudges < MAX_ERROR_NUDGES && !(aborted || signal.aborted)
+    let nudge = reply.done && lastError !== null && errorNudges < MAX_ERROR_NUDGES && !(aborted || signal.aborted)
     if (nudge) {
       errorNudges++
       parts.push({ type: 'text', text: errorNudge(lastError!) })
+    } else if (reply.done && !(aborted || signal.aborted)) {
+      const retry = await resultRetry()
+      if (retry !== null) {
+        nudge = true
+        parts.push({ type: 'text', text: retry })
+      }
     }
     const text = parts.map((p) => (p.type === 'text' ? p.text : '')).join('\n')
     convo.push({ role: 'user', content: parts.some((p) => p.type === 'image') ? parts : text })
