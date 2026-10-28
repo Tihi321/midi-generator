@@ -7,18 +7,22 @@ import {
   type Song,
   cloneCell,
   drumToDiffs,
+  findInstrumentIndex,
   formatNote,
   instrumentSlug,
+  isDrumRole,
   melodyToDiffs,
   parseDrumText,
   parseEffectToken,
   parseMelodyText,
   parseNote,
+  parseRole,
   parseTrackerText,
   patternKey,
   requireChannelIndex,
   requireInstrumentIndex,
   resolvePreset,
+  ROLE_CHANNELS,
   songChannelDefs,
   transposeDiatonic,
   trackerToDiffs
@@ -40,6 +44,25 @@ function sharedNotes(song: Song, channelIds: string[], order: number): string {
     if (users.length > 0) lines.push(`${id} pattern ${pat} is also used by order${users.length > 1 ? 's' : ''} ${users.join(', ')} (edits change those too; set_orders gives a section its own pattern numbers)`)
   }
   return lines.length ? `\nNote: ${lines.join('; ')}.` : ''
+}
+
+/**
+ * Default drum channel on the sample chips with a V1..Vn layout (ps1, dreamcast): the first ROLE_CHANNELS entry of the legend's
+ * role when it names one drum role (kick V13, tom V12, ...), V14 for mixed or unknown roles.
+ */
+function sampleDrumChannel(song: Song, legend: Record<string, string>): number {
+  const table = ROLE_CHANNELS[song.chip]
+  const roles = new Set<string>()
+  for (const value of Object.values(legend)) {
+    for (const tok of value.trim().split(/\s+/)) {
+      const role = tok.startsWith('@') ? song.instruments[findInstrumentIndex(song, tok)]?.role : parseRole(tok)
+      const id = role && isDrumRole(role) ? table[role]?.[0] : undefined
+      if (id !== undefined) roles.add(id)
+    }
+  }
+  const id = roles.size === 1 ? [...roles][0] : 'V14'
+  const ci = song.channels.findIndex((c) => c.id === id)
+  return ci >= 0 ? ci : song.channels.length - 1
 }
 
 function patternList(song: Song, channelIds: string[], order: number): string {
@@ -215,7 +238,7 @@ export const noteTools = [
     name: 'write_drums',
     group: 'notes',
     description:
-      'Write a drum pattern as steps: one character per row, "." = rest. The legend maps characters to drum sounds: an instrument ("@kick"), or a ROLE (kick, snare, hihat/hat, openhat, crash, tom, clap) for which the right chip preset is ADDED AUTOMATICALLY if the song has none (the result says what was added). A legend value may add a note (C-4) and volume (v8). "repeat" repeats the whole steps string (16 steps x repeat 4 = one 64-row pattern). Default channel: the noise channel (PC Engine: C6; SNES: V8). Example: {"legend":{"K":"kick","S":"snare","h":"hat v8"},"steps":"K.h.S.h.K.KhS.h.","repeat":4}. For ready-made grooves see get_drum_pattern. The noise channel plays one hit per row (priority: crash > snare > kick > hat in a combined string).',
+      'Write a drum pattern as steps: one character per row, "." = rest. The legend maps characters to drum sounds: an instrument ("@kick"), or a ROLE (kick, snare, hihat/hat, openhat, crash, tom, clap) for which the right chip preset is ADDED AUTOMATICALLY if the song has none (the result says what was added). A legend value may add a note (C-4) and volume (v8). "repeat" repeats the whole steps string (16 steps x repeat 4 = one 64-row pattern). Default channel: the noise channel (PC Engine: C6; SNES: V8; PS1/Dreamcast: the voice of the drum role, kick V13, snare V14, hat V15, mixed V14). Example: {"legend":{"K":"kick","S":"snare","h":"hat v8"},"steps":"K.h.S.h.K.KhS.h.","repeat":4}. For ready-made grooves see get_drum_pattern. The noise channel plays one hit per row (priority: crash > snare > kick > hat in a combined string).',
     input: obj({
       legend: z.record(z.string().min(1), z.string().min(1)).describe('Step character -> "@instrument" | role | "off", optionally with a note (C-4) and a volume (v8).'),
       steps: z.string().min(1).describe('Step string, one character per row ("." rest). Spaces and "|" are ignored for grouping.'),
@@ -237,6 +260,8 @@ export const noteTools = [
         ci = defs.findIndex((d) => d.noise || d.kind === 'noise' || d.kind === 'psg-noise')
         // PC Engine drums live on C6 (noise-capable); SNES drums are samples, conventionally on the last voice.
         if (ci < 0 && (song.chip === 'pce' || song.chip === 'snes')) ci = song.channels.length - 1
+        // PS1 and Dreamcast: the drum role's own voice (kick V13, snare V14, ...), V14 for a mixed legend.
+        if (ci < 0 && (song.chip === 'ps1' || song.chip === 'dreamcast')) ci = sampleDrumChannel(song, args.legend)
         if (ci < 0) throw new Error(`This chip has no noise channel; pass "channel" (${song.channels.map((c) => c.id).join(', ')}).`)
       }
       const channel = song.channels[ci]!

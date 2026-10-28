@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type ChipId, type Song, buildNoteTimeline, convertChip, createSong, getPattern, importMidi, resolvePreset, validateSong } from '../../src/core'
+import { type ChipId, type Song, buildNoteTimeline, convertChip, createSong, getPattern, importMidi, missingPresetSample, resolvePreset, validateSong } from '../../src/core'
 import { type MidiEvent, encodeSmf, metaTempo } from '../../src/core/codecs/midiFile'
 
 function nesSource(): Song {
@@ -194,7 +194,7 @@ describe('convertChip', () => {
     }
     ev.sort((a, b) => a.tick - b.tick)
     const data = encodeSmf([ev])
-    const chips: ChipId[] = ['nes', 'gb', 'genesis', 'snes', 'pce']
+    const chips: ChipId[] = ['nes', 'gb', 'genesis', 'snes', 'pce', 'ps1', 'dreamcast']
     for (const from of chips) {
       const src = importMidi(data, { chip: from }).song
       const srcDrums = buildNoteTimeline(src).events.filter((e) => e.percussion).length
@@ -208,5 +208,131 @@ describe('convertChip', () => {
         expect(drums, `${from} -> ${to} drums`).toBeGreaterThanOrEqual(srcDrums * 0.7)
       }
     }
+  })
+})
+
+// ---- the sample chips (PS1 24 / Dreamcast 64 voices)
+
+/** A song with `melodic` melodic voices (V1..V12, then V17..) and kick/snare on V13/V14, `notes` notes per voice. */
+function voiceSong(chip: ChipId, voices: number | undefined, melodic: number, notes = 8): Song {
+  const song = createSong({ chip, name: 'Many', patternLength: 16, ...(voices ? { chipConfig: { chip, voices } as never } : {}) })
+  const roles = ['bass', 'lead', 'pad', 'arp', 'pluck'] as const
+  const ids = song.channels.map((c) => c.id).filter((id) => ![13, 14, 15, 16].includes(Number(id.slice(1)))).slice(0, melodic)
+  ids.forEach((id, i) => {
+    const inst = resolvePreset(chip, i === 0 ? 'bass' : roles[1 + (i % 4)]!)
+    const idx = song.instruments.push(inst) - 1
+    const slot = missingPresetSample(song, inst)
+    if (slot) song.samples.push(slot)
+    const pat = getPattern(song, id, 0)
+    for (let n = 0; n < notes; n++) pat.rows[n * 2] = { note: (i === 0 ? 36 : 60) + ((i + n) % 7), ...(n === 0 ? { inst: idx } : {}) }
+  })
+  const kick = song.instruments.push(resolvePreset(chip, 'kick')) - 1
+  const snare = song.instruments.push(resolvePreset(chip, 'snare')) - 1
+  for (const inst of song.instruments) {
+    const slot = missingPresetSample(song, inst)
+    if (slot) song.samples.push(slot)
+  }
+  for (let n = 0; n < 8; n++) {
+    getPattern(song, 'V13', 0).rows[n * 2] = { note: 60, ...(n === 0 ? { inst: kick } : {}) }
+    getPattern(song, 'V14', 0).rows[n * 2 + 1] = { note: 60, ...(n === 0 ? { inst: snare } : {}) }
+  }
+  return song
+}
+
+const noteCount = (s: Song, percussion: boolean): number => buildNoteTimeline(s).events.filter((e) => !!e.percussion === percussion).length
+
+describe('convertChip with PS1 and Dreamcast', () => {
+  it('SNES -> PS1 goes voice to voice by role, adds the sample slots and keeps the reverb send', () => {
+    const snes = createSong({ chip: 'snes', name: 'Snes', patternLength: 16 })
+    for (const [role, ch] of [['bass', 'V1'], ['lead', 'V4'], ['pad', 'V3'], ['kick', 'V7'], ['snare', 'V8']] as const) {
+      const inst = resolvePreset('snes', role)
+      const idx = snes.instruments.push(inst) - 1
+      const slot = missingPresetSample(snes, inst)
+      if (slot) snes.samples.push(slot)
+      for (let n = 0; n < 4; n++) getPattern(snes, ch, 0).rows[n * 4] = { note: role === 'bass' ? 36 : 60, ...(n === 0 ? { inst: idx } : {}) }
+    }
+    const { song, report } = convertChip(snes, 'ps1')
+    expect(song.channels).toHaveLength(16)
+    expect(song.instruments.length).toBeGreaterThan(0)
+    expect(song.instruments.every((i) => i.kind === 'psx-sample')).toBe(true)
+    for (const inst of song.instruments) if (inst.kind === 'psx-sample') expect(song.samples.some((s) => s.id === inst.sample)).toBe(true)
+    expect(role(song, 'V1', 0, 0)).toBe('bass')
+    // voices that exist on both chips keep their id (V3 pad, V4 lead); the drums go to V13/V14
+    expect(role(song, 'V3', 0, 0)).toBe('pad')
+    expect(role(song, 'V4', 0, 0)).toBe('lead')
+    expect(role(song, 'V13', 0, 0)).toBe('kick')
+    expect(role(song, 'V14', 0, 0)).toBe('snare')
+    // echo -> reverb send: the SNES lead and pad presets are echoed, the converted ones keep the send
+    const leadInst = song.instruments[getPattern(song, 'V4', song.orders[0]![3]!).rows[0]!.inst!]!
+    expect(leadInst.kind === 'psx-sample' && leadInst.reverb).toBe(true)
+    expect(report.join('\n')).toMatch(/-> V4 /)
+    expect(errorsOf(song)).toEqual([])
+    expect(noteCount(song, false)).toBe(noteCount(snes, false))
+    expect(noteCount(song, true)).toBe(noteCount(snes, true))
+  })
+
+  it('PS1 -> Dreamcast keeps every channel, and the round trip keeps the note counts', () => {
+    const ps1 = voiceSong('ps1', 24, 12)
+    const { song, report } = convertChip(ps1, 'dreamcast')
+    expect(song.chip).toBe('dreamcast')
+    expect(song.instruments.every((i) => i.kind === 'aica-sample')).toBe(true)
+    expect(role(song, 'V1', 0, 0)).toBe('bass')
+    expect(role(song, 'V13', 0, 0)).toBe('kick')
+    expect(role(song, 'V14', 0, 1)).toBe('snare')
+    expect(report.join('\n')).not.toMatch(/Dropped V/)
+    expect(errorsOf(song)).toEqual([])
+    expect(noteCount(song, false)).toBe(12 * 8)
+    expect(noteCount(song, false)).toBe(noteCount(ps1, false))
+    expect(noteCount(song, true)).toBe(noteCount(ps1, true))
+    const back = convertChip(song, 'ps1').song
+    expect(noteCount(back, false)).toBe(noteCount(ps1, false))
+    expect(noteCount(back, true)).toBe(noteCount(ps1, true))
+    expect(errorsOf(back)).toEqual([])
+  })
+
+  it('Dreamcast 64 voices -> NES drops the extra channels and keeps the report readable', () => {
+    const dc = voiceSong('dreamcast', 64, 40)
+    expect(dc.channels).toHaveLength(64)
+    const { song, report } = convertChip(dc, 'nes')
+    expect(song.chip).toBe('nes')
+    expect(errorsOf(song)).toEqual([])
+    // three melodic channels (P1, P2, TR) survive with all their notes; the other 37 are dropped
+    expect(noteCount(song, false)).toBe(3 * 8)
+    const dropLines = report.filter((l) => /^Dropped V/.test(l))
+    expect(dropLines.length).toBeLessThanOrEqual(11)
+    expect(dropLines.filter((l) => /^Dropped V\d+ \(/.test(l))).toHaveLength(10)
+    expect(report.join('\n')).toMatch(/Dropped 27 more channel\(s\) \(216 notes in total.*\): V\d+, .* \.\.\. V\d+; NES has no free melodic channel/)
+    expect(report.length).toBeLessThan(40)
+    // the drums are still placed on the noise channel
+    expect(noteCount(song, true)).toBeGreaterThan(0)
+  })
+
+  it('Genesis -> Dreamcast and NES -> PS1 map the roles and keep the notes', () => {
+    const gen = createSong({ chip: 'genesis', name: 'Gen', patternLength: 16 })
+    gen.instruments.push(resolvePreset('genesis', 'bass', 'fm'), resolvePreset('genesis', 'lead', 'fm'), resolvePreset('genesis', 'hihat', 'psg-noise'))
+    for (let n = 0; n < 4; n++) {
+      getPattern(gen, 'F1', 0).rows[n * 4] = { note: 36, ...(n === 0 ? { inst: 0 } : {}) }
+      getPattern(gen, 'F2', 0).rows[n * 4] = { note: 64, ...(n === 0 ? { inst: 1 } : {}) }
+      getPattern(gen, 'NO', 0).rows[n * 4 + 2] = { note: 60, ...(n === 0 ? { inst: 2 } : {}) }
+    }
+    const dc = convertChip(gen, 'dreamcast').song
+    expect(role(dc, 'V1', 0, 0)).toBe('bass')
+    expect(role(dc, 'V2', 0, 0)).toBe('lead')
+    expect(noteCount(dc, false)).toBe(8)
+    expect(noteCount(dc, true)).toBe(4)
+    expect(errorsOf(dc)).toEqual([])
+    expect(dc.instruments.every((i) => i.kind === 'aica-sample')).toBe(true)
+
+    const nes = nesSource()
+    const ps1 = convertChip(nes, 'ps1').song
+    expect(role(ps1, 'V1', 0, 0)).toBe('bass')
+    expect(role(ps1, 'V2', 0, 0)).toBe('lead')
+    expect(role(ps1, 'V13', 0, 0)).toBe('kick')
+    expect(errorsOf(ps1)).toEqual([])
+    expect(noteCount(ps1, false)).toBe(noteCount(nes, false))
+    expect(noteCount(ps1, true)).toBe(noteCount(nes, true))
+    const back = convertChip(ps1, 'nes').song
+    expect(noteCount(back, false)).toBe(noteCount(nes, false))
+    expect(errorsOf(back)).toEqual([])
   })
 })

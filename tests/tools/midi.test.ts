@@ -145,7 +145,7 @@ describe('convert_chip', () => {
   it('keeps the song playable: converted songs render sound', async () => {
     const t = songSetup()
     await writeSong(t)
-    for (const chip of ['gb', 'pce', 'snes', 'genesis']) {
+    for (const chip of ['gb', 'pce', 'snes', 'genesis', 'ps1', 'dreamcast']) {
       await t.ok('convert_chip', { chip })
       const analysis = resultText(await t.ok('analyze_song'))
       expect(analysis).not.toMatch(/ERROR/)

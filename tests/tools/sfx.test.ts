@@ -6,7 +6,7 @@ import { SFX_SOUNDS, composeSfx } from '../../src/tools'
 import type { SfxKind } from '../../src/tools'
 import { resultText, songSetup } from './helpers'
 
-const CHIPS = ['nes', 'gb', 'genesis', 'snes', 'pce'] as const
+const CHIPS = ['nes', 'gb', 'genesis', 'snes', 'pce', 'ps1', 'dreamcast'] as const
 const KINDS = ['sfx', 'stinger', 'ambience'] as const
 
 function lastJson(r: { content: Array<{ type: string; text?: string }> }): Record<string, unknown> {

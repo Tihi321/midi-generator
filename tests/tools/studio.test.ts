@@ -5,7 +5,7 @@ import { MOOD_IDS, readWav, renderSong, serializeProject, songSeconds, validateS
 import { composeSong } from '../../src/tools'
 import { channelRows, resultText, songSetup } from './helpers'
 
-const CHIPS = ['nes', 'gb', 'genesis', 'snes', 'pce'] as const
+const CHIPS = ['nes', 'gb', 'genesis', 'snes', 'pce', 'ps1', 'dreamcast'] as const
 const CALM = ['ambient', 'lullaby', 'peaceful', 'mysterious-calm']
 
 /** The last text item of a result parsed as the JSON object contract. */

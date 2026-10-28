@@ -467,7 +467,7 @@ describe('midi import', () => {
     ev.sort((a, b) => a.tick - b.tick)
     const data = encodeSmf([ev])
     data[9] = 0 // format 0
-    for (const chip of ['nes', 'gb', 'genesis', 'snes', 'pce'] as ChipId[]) {
+    for (const chip of ['nes', 'gb', 'genesis', 'snes', 'pce', 'ps1', 'dreamcast'] as ChipId[]) {
       const { song } = importMidi(data, { chip })
       const errors = validateSong(song).filter((i) => i.severity === 'error')
       expect(errors, `${chip}: ${errors.map((e) => e.message).join('; ')}`).toEqual([])

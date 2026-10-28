@@ -109,6 +109,32 @@ describe('PS1 and Dreamcast songs through the tools', () => {
     }
   })
 
+  it('write_drums without a channel uses the voice of the drum role, V14 for a mixed legend, and leaves SNES and PCE alone', async () => {
+    const cases: [ChipId, Record<string, string>, string][] = [
+      ['ps1', { K: 'kick' }, 'V13'],
+      ['dreamcast', { T: 'tom' }, 'V12'],
+      ['ps1', { h: 'hat' }, 'V15'],
+      ['dreamcast', { C: 'crash' }, 'V16'],
+      ['ps1', { S: 'snare', c: 'clap' }, 'V14'],
+      ['dreamcast', { K: 'kick', S: 'snare', h: 'hat' }, 'V14']
+    ]
+    for (const [chip, legend, ch] of cases) {
+      const t = songSetup()
+      await t.ok('new_song', { chip })
+      const text = await t.text('write_drums', { legend, steps: Object.keys(legend).join('...') + '...' })
+      expect(text, `${chip} ${JSON.stringify(legend)}`).toMatch(new RegExp(` to ${ch} at order`))
+    }
+    const t = songSetup()
+    await t.ok('new_song', { chip: 'ps1' })
+    await t.ok('add_instrument', { preset: 'snare', channel: 'V14' })
+    expect(await t.text('write_drums', { legend: { S: '@snare' }, steps: 'S...' })).toMatch(/ to V14 at order/)
+    for (const [chip, ch] of [['snes', 'V8'], ['pce', 'C6']] as const) {
+      const u = songSetup()
+      await u.ok('new_song', { chip })
+      expect(await u.text('write_drums', { legend: { K: 'kick' }, steps: 'K...' })).toMatch(new RegExp(` to ${ch} at order`))
+    }
+  })
+
   it('the five existing chips stay playable', () => {
     for (const chip of ['nes', 'gb', 'genesis', 'snes', 'pce'] as ChipId[]) {
       expect(isChipPlayable(chip), chip).toBe(true)

@@ -208,6 +208,12 @@ Commit: `MDI-10: UI for PS1 reverb, Dreamcast DSP and their sample instruments`.
 **Done when** typecheck, lint and test pass with all seven chips in every chip loop.
 Commit: `MDI-10: Every chip loop in the tests covers PS1 and Dreamcast`.
 
+**Phase J status (implemented, not committed):** all three bullets done; `yarn typecheck`, `yarn lint` and `yarn test` (77 files, 1069 tests) pass, `snes.test.ts` + `composerPin.test.ts` pass, `snes-baseline.ts --check` prints `OK: all 50 hashes identical`, no `golden-*.json` touched.
+- Chip lists: `studio.test.ts`, `sfx.test.ts`, `midi.test.ts` (core, :470), `tools/midi.test.ts` (:148) and the "every chip converts to every other chip" loop in `convert.test.ts` now list all seven chips (`project.test.ts` already did since B0). Nothing failed when the chips were added: no sfx, composer or codec fix was needed.
+- `write_drums` default channel (`defs/notes.ts` `sampleDrumChannel`): ps1/dreamcast use the first `ROLE_CHANNELS` entry of the legend's drum role (roles from role words and `@instrument` roles), V14 when the legend mixes roles or names none. SNES (V8) and PCE (C6) unchanged. Test in `tests/tools/sampleChips.test.ts`.
+- `convert.ts` report (Risk 10): the first 10 dropped channels get one line each, the rest one summary line ("Dropped 27 more channel(s) (216 notes in total, ...): V2, V3, ... V44; NES has no free melodic channel for them."); the drum line collapses more than 6 source channels. New `convert.test.ts` cases: snes -> ps1, ps1 -> dreamcast (+ round trip), dreamcast 64 -> nes, genesis -> dreamcast, nes -> ps1 (+ round trip), all with note counts checked.
+- Deviation: SNES -> PS1 keeps ids that exist on both chips (the generic "same id and kind first" rule), so the SNES V3 pad and V4 lead stay on V3 and V4 rather than moving to V2; drums move to V13/V14. This is the existing convert rule, left unchanged.
+
 ---
 
 ## Phase D: synthwave presets and moods (D1 ∥ D2)
