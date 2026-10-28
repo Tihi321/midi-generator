@@ -2,8 +2,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { NO_TOOLS_REFUSAL, runAgent, toolResultContent } from '../../src/llm/agent'
-import type { AgentEvent, ToolHost, ToolResult } from '../../src/llm/agent'
+import { MAX_RESULT_NUDGES, NO_TOOLS_REFUSAL, runAgent, toolResultContent } from '../../src/llm/agent'
+import type { AgentEvent, ResultCheck, ToolHost, ToolResult } from '../../src/llm/agent'
 import { MockProvider } from '../../src/llm/mock'
 import type { MockReply } from '../../src/llm/mock'
 import { ModelRegistry } from '../../src/llm/registry'
@@ -439,5 +439,90 @@ describe('agent loop, JSON-action fallback', () => {
     expect(sent.some((m) => m.role === 'assistant' && 'toolCalls' in m)).toBe(false)
     expect(text(sent[2]!)).toContain('"tool":"draw"')
     expect(text(sent[3]!)).toBe('Result of draw:\nok')
+  })
+})
+
+describe('end-of-run result check (MDI-09)', () => {
+  const json = { capabilities: { tools: false, vision: false } }
+  const reply = (o: object): MockReply => JSON.stringify(o)
+  /** A "song" with a counter; `draw` changes it only when `effect` is true. */
+  const song = (effect: boolean) => {
+    let n = 0
+    const { host, calls } = makeHost({ draw: () => { if (effect) n++; return { content: [{ type: 'text', text: 'ok' }] } } })
+    const resultCheck: ResultCheck = { mutates: (t) => t === 'draw', snapshot: () => `n=${n}` }
+    return { host, calls, resultCheck }
+  }
+  const nudgeText = /the song is unchanged/
+
+  it('json mode: sends the model back when it ends after a mutating action that left the song unchanged (done:true)', async () => {
+    const mock = new MockProvider('mock', { chunkDelayMs: 1 })
+    mock.script([reply({ actions: [{ tool: 'draw', args: {} }], done: true }), reply({ actions: [{ tool: 'draw', args: {} }], done: false }), reply({ actions: [], done: true })])
+    let n = 0
+    const { host } = makeHost({ draw: () => { if (mock.requests.length > 1) n++; return { content: [{ type: 'text', text: 'ok' }] } } })
+    const res = await runAgent({ chat: mockChat(mock), ...json, system: 's', userMessage: 'go', host, resultCheck: { mutates: (t) => t === 'draw', snapshot: () => `n=${n}` } })
+    expect(res.reason).toBe('completed')
+    expect(mock.requests).toHaveLength(3)
+    expect(text(mock.requests[1]!.messages.at(-1)!)).toMatch(nudgeText)
+  })
+
+  it('json mode: fires on an empty-actions end too, capped at MAX_RESULT_NUDGES', async () => {
+    const mock = new MockProvider('mock', { chunkDelayMs: 1 })
+    const end = reply({ say: 'done', actions: [], done: true })
+    mock.script([reply({ actions: [{ tool: 'draw', args: {} }], done: false }), end, end, end])
+    const s = song(false)
+    const res = await runAgent({ chat: mockChat(mock), ...json, system: 's', userMessage: 'go', host: s.host, resultCheck: s.resultCheck })
+    expect(res.reason).toBe('completed')
+    expect(mock.requests).toHaveLength(1 + 1 + MAX_RESULT_NUDGES)
+    expect(res.messages.filter((m) => m.role === 'user' && nudgeText.test(text(m)))).toHaveLength(MAX_RESULT_NUDGES)
+  })
+
+  it('does not fire on a run without a mutating action (Q&A), nor when the song changed', async () => {
+    const qa = new MockProvider('mock', { chunkDelayMs: 1 })
+    qa.script([reply({ actions: [{ tool: 'preview', args: {} }], done: false }), reply({ say: 'It is C major.', actions: [], done: true })])
+    const s1 = song(false)
+    const r1 = await runAgent({ chat: mockChat(qa), ...json, system: 's', userMessage: 'which key?', host: s1.host, resultCheck: s1.resultCheck })
+    expect(r1.reason).toBe('completed')
+    expect(qa.requests).toHaveLength(2)
+    const changed = new MockProvider('mock', { chunkDelayMs: 1 })
+    changed.script([reply({ actions: [{ tool: 'draw', args: {} }], done: false }), reply({ actions: [], done: true })])
+    const s2 = song(true)
+    const r2 = await runAgent({ chat: mockChat(changed), ...json, system: 's', userMessage: 'go', host: s2.host, resultCheck: s2.resultCheck })
+    expect(r2.reason).toBe('completed')
+    expect(changed.requests).toHaveLength(2)
+    expect(r2.messages.some((m) => nudgeText.test(text(m)))).toBe(false)
+  })
+
+  it('the error guard comes first: a failed last action is nudged with the error text, the result guard follows after it', async () => {
+    const mock = new MockProvider('mock', { chunkDelayMs: 1 })
+    mock.onAny(reply({ actions: [], done: true }))
+    mock.script([reply({ actions: [{ tool: 'draw', args: {} }], done: true })])
+    const { host } = makeHost({ draw: () => ({ content: [{ type: 'text', text: 'boom' }], isError: true }) })
+    const resultCheck: ResultCheck = { mutates: () => true, snapshot: () => 'same' }
+    const res = await runAgent({ chat: mockChat(mock), ...json, system: 's', userMessage: 'go', host, resultCheck })
+    expect(res.reason).toBe('completed')
+    const users = res.messages.filter((m) => m.role === 'user').map(text)
+    expect(users[1]).toMatch(/Your last action failed[\s\S]*boom/)
+    expect(users[1]).not.toMatch(nudgeText)
+    expect(users.findIndex((u) => nudgeText.test(u))).toBeGreaterThan(1)
+    expect(users.filter((u) => nudgeText.test(u))).toHaveLength(MAX_RESULT_NUDGES)
+  })
+
+  it('native mode shares the check: a text answer after an unchanged mutating call is sent back, once the song changes it ends', async () => {
+    const mock = new MockProvider('mock', { chunkDelayMs: 1 })
+    mock.script([{ toolCalls: [{ name: 'draw', args: {}, id: 'c1' }] }, 'All done.', { toolCalls: [{ name: 'draw', args: {}, id: 'c2' }] }, 'Really done.'])
+    let n = 0
+    const { host } = makeHost({ draw: () => { if (mock.requests.length > 2) n++; return { content: [{ type: 'text', text: 'ok' }] } } })
+    const res = await runAgent({ chat: mockChat(mock), capabilities: { tools: true, vision: false }, system: 's', userMessage: 'go', host, resultCheck: { mutates: () => true, snapshot: () => `n=${n}` } })
+    expect(res.reason).toBe('completed')
+    expect(mock.requests).toHaveLength(4)
+    expect(text(mock.requests[2]!.messages.at(-1)!)).toMatch(nudgeText)
+  })
+
+  it('a check that cannot read the state is off', async () => {
+    const mock = new MockProvider('mock', { chunkDelayMs: 1 })
+    mock.script([reply({ actions: [{ tool: 'draw', args: {} }], done: true })])
+    const res = await runAgent({ chat: mockChat(mock), ...json, system: 's', userMessage: 'go', host: makeHost().host, resultCheck: { mutates: () => true, snapshot: () => { throw new Error('no state') } } })
+    expect(res.reason).toBe('completed')
+    expect(mock.requests).toHaveLength(1)
   })
 })

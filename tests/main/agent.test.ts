@@ -23,6 +23,7 @@ interface FakeBridge extends TurnToolHost {
 }
 
 function makeBridge(names = ['get_song', 'write_pattern', 'render_preview', 'read_pattern'], opts: { turnError?: string } = {}): FakeBridge {
+  let writes = 0 // the fake song changes with every write, so the end-of-run result check (MDI-09) sees a change
   const b: FakeBridge = {
     log: [],
     calls: [],
@@ -31,7 +32,8 @@ function makeBridge(names = ['get_song', 'write_pattern', 'render_preview', 'rea
     tools: () => names.map(def),
     async execute(name, args) {
       b.calls.push({ name, args })
-      if (name === 'get_song') return text('SONG nes 120bpm')
+      if (name === 'get_song') return text(`SONG nes 120bpm${writes ? ` +${writes} writes` : ''}`)
+      if (name === 'write_pattern') writes++
       if (name === 'get_style_context') return b.style
       if (name === 'render_preview') return PNG
       return text(`${name} ok`)
@@ -137,6 +139,22 @@ describe('AgentRunner', () => {
     expect(bridge.log).toEqual(['begin:Agent: draw a big green tree with', 'end'])
     expect(bridge.endArgs).toEqual([{ rollback: false }])
     expect(bridge.calls.filter((c) => c.name === 'write_pattern')).toHaveLength(2)
+  })
+
+  it('sends the model back when a mutating tool left the song unchanged, never for read-only runs (MDI-09)', async () => {
+    bridge = makeBridge(['get_song', 'write_pattern', 'set_song_info', 'read_pattern'])
+    mock.script([{ toolCalls: [{ name: 'set_song_info', id: 'a' }] }, 'done', 'still nothing'])
+    const runner = make()
+    runner.send({ text: 'go' })
+    await runner.whenIdle()
+    expect(mock.requests.length).toBe(4) // capped at two nudges
+    expect(content(mock.requests[2]!.messages.at(-1)!)).toMatch(/the song is unchanged/)
+    mock.reset()
+    mock.script([{ toolCalls: [{ name: 'read_pattern', id: 'b' }] }, 'it is fine'])
+    const qa = make()
+    qa.send({ text: 'what is in it?' })
+    await qa.whenIdle()
+    expect(mock.requests.length).toBe(2)
   })
 
   it('forwards events and ends with a single done after the turn is closed', async () => {
