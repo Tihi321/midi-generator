@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import {
   type ChipId,
@@ -12,11 +13,13 @@ import {
   parseMidi,
   pickRowsPerBeat,
   resolvePreset,
+  shareMelodicChannels,
   validateSong,
   writeMidi
 } from '../../src/core'
 import { type MidiEvent, encodeSmf, metaKeySignature, metaString, metaTempo, metaTimeSignature, metaText } from '../../src/core/codecs/midiFile'
 import { gmDrumNoteFor, gmProgramFor, roleForGmDrumNote, roleForGmProgram } from '../../src/core/codecs/gmMap'
+import { exportFixtures, melodicSong } from './midiFixtures'
 
 const hex = (b: Uint8Array): string => Buffer.from(b).toString('hex')
 
@@ -477,5 +480,186 @@ describe('midi import', () => {
 
   it('refuses a file without notes', () => {
     expect(() => importMidi(encodeSmf([[metaTempo(0, 500000)]]))).toThrow(/no notes/)
+  })
+})
+// ---------------------------------------------------------------- more than 15 melodic channels (PS1 24 voices, Dreamcast 32 / 64)
+
+const sha256 = (b: Uint8Array): string => createHash('sha256').update(b).digest('hex')
+
+/** The 15 melodic MIDI channels (0-based). */
+const MELODIC_CHANNELS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15]
+
+/** sha256 of the exports of `exportFixtures()` made by the exporter before channel sharing (one MIDI channel per melodic channel). */
+const PINNED_EXPORTS: Record<string, string> = {
+  'heroic nes 1': '04e27a3b982bdb19925d79d87136c26cd74aec54898e3e73bdcbbc512120c41c',
+  'battle gb 2': '4cfcb457725aeda2c1d03770060df53e0d9ce11e01b031f7eb63b2298b4fec8f',
+  'chill genesis 3': '522604ab4f27097a8b0ff37f072d9fdbaa7e0b6727621948f07a228d2c7b82de',
+  'ambient snes 1': '8121e2bd84730dda5acaa09e1454ff92c7acb9fe32434bb53ded682fa30b1efc',
+  'overworld pce 4': '60d72c39388c02ed212babe6633c7ffa41a0ac16a46d88445add5e441a2fda86',
+  'synthwave ps1 1': '846f9954eae325b066dea738fd22904cd738f837135a17d84f981c8083a521ca',
+  'outrun dreamcast 1': '6f05e62580b3e79b05ca3531545412dbe9928e9f7927e31c76819ea6167123f0',
+  'darkwave ps1 2': 'c3c199ae97140d243cf15aa04d5045ca867e440281febdde71ea6b1ac051f5a8',
+  'melodic 15': '33789ccfe5ecff4a71177b1b7b2a11004c710aefa272788d43b5d93826d97dcd',
+  'melodic 14 same program': 'dc48ba9b28a6c770791a292dc87f5826d07f9311b600701469e46d6b264c731f',
+  'melodic 15 dreamcast': '33789ccfe5ecff4a71177b1b7b2a11004c710aefa272788d43b5d93826d97dcd'
+}
+
+interface TrackInfo {
+  name: string
+  channels: number[]
+  notes: number
+  programs: number[]
+  /** Events other than notes and meta events (program changes, controllers, pitch bends). */
+  other: number
+  bends: number
+}
+
+/** Per-track summary of an exported file (track 0, the conductor, is left out). */
+function tracksOf(data: Uint8Array): TrackInfo[] {
+  return parseMidi(data)
+    .tracks.slice(1)
+    .map((tr) => ({
+      name: metaString(tr.find((e) => e.kind === 'meta' && e.type === 0x03) as Extract<MidiEvent, { kind: 'meta' }>),
+      channels: [...new Set(tr.flatMap((e) => (e.kind === 'noteOn' ? [e.channel] : [])))],
+      notes: tr.filter((e) => e.kind === 'noteOn').length,
+      programs: tr.flatMap((e) => (e.kind === 'program' ? [e.program] : [])),
+      other: tr.filter((e) => e.kind !== 'meta' && e.kind !== 'noteOn' && e.kind !== 'noteOff').length,
+      bends: tr.filter((e) => e.kind === 'pitchBend').length
+    }))
+}
+
+describe('midi export with more than 15 melodic channels', () => {
+  it('exports with 15 or fewer melodic channels are byte-identical to the one-channel-each layout', () => {
+    const fixtures = exportFixtures()
+    expect(fixtures.map((f) => f.name)).toEqual(Object.keys(PINNED_EXPORTS))
+    for (const { name, song } of fixtures) {
+      const r = exportMidi(song)
+      expect(r.merged, name).toBeUndefined()
+      expect(sha256(r.data), name).toBe(PINNED_EXPORTS[name])
+    }
+  })
+
+  it('shareMelodicChannels: identity up to 15 tracks (skipping the drum channel), then programs reserve channels', () => {
+    expect(shareMelodicChannels([5, 6, 7], [4, 4, 4]).map((s) => s.midiCh)).toEqual([0, 1, 2])
+    const fifteen = shareMelodicChannels(Array(15).fill(1), Array(15).fill(1))
+    expect(fifteen.map((s) => s.midiCh)).toEqual(MELODIC_CHANNELS)
+    expect(fifteen.some((s) => s.guest)).toBe(false)
+    // 15 tracks of program 1, then programs 2 and 3: the two new programs keep a channel each, so the last two program-1 tracks become guests
+    const programs = [...Array(15).fill(1), 2, 3]
+    const r = shareMelodicChannels(programs, programs.map(() => 4))
+    expect(r.map((s) => s.guest)).toEqual([...Array(13).fill(false), true, true, false, false])
+    expect(new Set(r.map((s) => s.midiCh)).size).toBe(15)
+    // a guest names the track that owns its channel
+    for (const s of r.filter((x) => x.guest)) expect(r[s.host]!.midiCh).toBe(s.midiCh)
+  })
+
+  it('a 24-voice PS1 song shares MIDI channels by GM program and keeps every note', () => {
+    const song = melodicSong(24)
+    const programs = song.instruments.map((i) => gmProgramFor(i, 60))
+    const distinct = new Set(programs)
+    expect(distinct.size).toBeLessThan(15)
+    const r = exportMidi(song)
+    expect(r.tracks).toBe(25)
+    const tracks = tracksOf(r.data)
+    expect(tracks.map((t) => t.notes)).toEqual(Array(24).fill(4))
+    expect(r.notes).toBe(96)
+    // every track sits on one melodic channel (never channel 10), and all 15 channels are used
+    for (const t of tracks) {
+      expect(t.channels).toHaveLength(1)
+      expect(MELODIC_CHANNELS).toContain(t.channels[0])
+    }
+    expect(new Set(tracks.map((t) => t.channels[0])).size).toBe(15)
+    // tracks on one channel have the same program, and every program has a channel of its own set
+    const programOfChannel = new Map<number, number>()
+    tracks.forEach((t, i) => {
+      const ch = t.channels[0]!
+      expect(programOfChannel.get(ch) ?? programs[i], `track ${t.name}`).toBe(programs[i])
+      programOfChannel.set(ch, programs[i]!)
+    })
+    expect(new Set(programOfChannel.values())).toEqual(distinct)
+    // the owner of a channel writes the program, a guest does not
+    expect(r.merged).toHaveLength(9)
+    expect(r.merged!.every((m) => m.sameProgram)).toBe(true)
+    const guests = new Set(r.merged!.map((m) => m.track))
+    for (const t of tracks) expect(t.programs.length > 0, t.name).toBe(!guests.has(t.name))
+  })
+
+  it('one program everywhere: 15 channels of their own, the other tracks merged one by one onto the first channels', () => {
+    const r = exportMidi(melodicSong(24, { sameRole: true }))
+    const tracks = tracksOf(r.data)
+    expect(tracks.slice(0, 15).map((t) => t.channels[0])).toEqual(MELODIC_CHANNELS)
+    expect(tracks.slice(15).map((t) => t.channels[0])).toEqual(MELODIC_CHANNELS.slice(0, 9))
+    expect(r.merged!.map((m) => [m.track, m.into, m.midiChannel])).toEqual(
+      Array.from({ length: 9 }, (_, i) => [`Voice ${16 + i}`, `Voice ${1 + i}`, MELODIC_CHANNELS[i]! + 1])
+    )
+  })
+
+  it('more programs than channels: the first 15 get a channel each, the rest go onto the least-used channels without their program', () => {
+    const song = melodicSong(20)
+    song.instruments.forEach((inst, i) => (inst.gm = { program: i * 5 }))
+    const r = exportMidi(song)
+    const tracks = tracksOf(r.data)
+    expect(tracks.slice(0, 15).map((t) => t.channels[0])).toEqual(MELODIC_CHANNELS)
+    expect(tracks.slice(15).map((t) => t.channels[0])).toEqual(MELODIC_CHANNELS.slice(0, 5))
+    expect(r.merged).toHaveLength(5)
+    expect(r.merged!.every((m) => !m.sameProgram)).toBe(true)
+    for (const t of tracks.slice(15)) expect(t.programs).toEqual([])
+    expect(tracks.map((t) => t.notes)).toEqual(Array(20).fill(4))
+  })
+
+  it('a merged track keeps its notes but writes no setup, program, volume or pitch bend of its own', () => {
+    const song = melodicSong(24, { sameRole: true })
+    for (const v of ['V1', 'V20']) getPattern(song, v, 0).rows[0] = { note: 60, inst: Number(v.slice(1)) - 1, vol: 12, fx: [{ code: '1', param: 0x10 }] }
+    const tracks = tracksOf(writeMidi(song))
+    expect(tracks[0]!.bends).toBeGreaterThan(0) // the owner of the channel keeps its slide
+    expect(tracks[19]!.bends).toBe(0)
+    expect(tracks[19]!.other).toBe(0)
+    expect(tracks[19]!.notes).toBe(4)
+    expect(tracks[0]!.other).toBeGreaterThan(8)
+  })
+
+  it('a Dreamcast song with 64 voices exports with every note, drums stay on channel 10', () => {
+    const song = melodicSong(40, { chip: 'dreamcast' })
+    const drum = resolvePreset('dreamcast', 'kick')
+    song.instruments.push(drum)
+    getPattern(song, 'V50', 0).rows[0] = { note: 60, inst: song.instruments.length - 1, vol: 15 }
+    const r = exportMidi(song)
+    const m = parseMidi(r.data)
+    const ons = m.tracks.flatMap((tr) => tr.filter((e) => e.kind === 'noteOn'))
+    expect(ons.filter((e) => e.channel !== 9)).toHaveLength(40 * 4)
+    expect(ons.filter((e) => e.channel === 9).map((e) => (e.kind === 'noteOn' ? e.note : 0))).toEqual([36])
+    expect(r.merged).toHaveLength(25)
+    expect(ons.every((e) => e.kind === 'noteOn' && (e.channel === 9 || MELODIC_CHANNELS.includes(e.channel)))).toBe(true)
+  })
+})
+
+describe('midi import onto the sample chips', () => {
+  it('keeps more of a 10-track GM file on the PS1 than on the SNES', () => {
+    const programs = [38, 80, 48, 0, 24, 73, 56, 33, 11, 89]
+    const channels = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10] // MIDI channel 10 (index 9) is the drum channel
+    const ev: MidiEvent[] = [metaTempo(0, 500000), metaTimeSignature(0, 4, 2), metaKeySignature(0, 0, false)]
+    channels.forEach((ch, i) => ev.push(program(0, ch, programs[i]!)))
+    for (let k = 0; k < 16; k++) {
+      channels.forEach((ch, i) => {
+        // different pitches and note counts, so the track ranking is stable
+        if (k % (1 + (i % 3)) !== 0) return
+        const note = 40 + i * 3 + ((k * 2) % 7)
+        ev.push(on(k * 240, ch, note), off(k * 240 + 200, ch, note))
+      })
+      ev.push(on(k * 240, 9, k % 2 ? 38 : 36), off(k * 240 + 50, 9, k % 2 ? 38 : 36), on(k * 240, 9, 42), off(k * 240 + 50, 9, 42))
+    }
+    ev.sort((a, b) => a.tick - b.tick)
+    const data = encodeSmf([ev])
+    const drumChannels: Record<string, string[]> = { snes: ['V7', 'V8'], ps1: ['V13', 'V14', 'V15', 'V16'] }
+    const kept: Record<string, number> = {}
+    for (const chip of ['snes', 'ps1'] as ChipId[]) {
+      const { song } = importMidi(data, { chip })
+      expect(validateSong(song).filter((i) => i.severity === 'error'), chip).toEqual([])
+      const used = new Set(buildNoteTimeline(song).events.map((e) => e.channel))
+      kept[chip] = [...used].filter((c) => !drumChannels[chip]!.includes(c)).length
+    }
+    expect(kept['ps1']).toBe(10)
+    expect(kept['snes']).toBeLessThanOrEqual(6)
+    expect(kept['ps1']).toBeGreaterThan(kept['snes']!)
   })
 })

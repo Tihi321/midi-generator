@@ -7,6 +7,8 @@
 //  - one track per channel with notes: track name, program change (gmMap), RPN 0 pitch-bend range of +-12 semitones,
 //    notes, CC11 expression for volume changes under a held note, pitch bend for slides/portamento/vibrato/note slides.
 //  - noise, DPCM, DAC and drum-role instruments become GM percussion on MIDI channel 10 (one extra track per channel).
+//  - MIDI has 15 melodic channels (1-9, 11-16). Songs with more melodic channels (PS1 and Dreamcast with 24 to 64 voices)
+//    share them by GM program (see shareMelodicChannels).
 //
 // Not exported: instrument macros (envelopes, pitch macros), tremolo, duty/timbre and echo effects, Pxx fine pitch.
 
@@ -49,6 +51,8 @@ export interface MidiExport {
   loop?: { startTick: number; endTick: number }
   tempoChanges: number
   trackNames: string[]
+  /** Only when the song has more melodic channels than MIDI has: the tracks that were merged onto another track's MIDI channel. */
+  merged?: { track: string; into: string; midiChannel: number; sameProgram: boolean }[]
 }
 
 // Pitch class (sharp spelling) -> sharps (+) / flats (-) of the major key with that tonic.
@@ -101,6 +105,55 @@ interface RowInfo {
   start: number
   len: number
   bpm: number
+}
+
+/** The 15 melodic MIDI channels (0-based; channel 10 is the drum channel). */
+const MELODIC_SLOTS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15]
+
+export interface SharedChannel {
+  /** 0-based MIDI channel. */
+  midiCh: number
+  /** A guest plays on the MIDI channel of an earlier track: it writes notes only (no program change, setup or controllers), so it does not disturb its host. */
+  guest: boolean
+  /** Index (in the melodic list) of the track that owns the MIDI channel. */
+  host: number
+}
+
+/**
+ * Give every melodic track a MIDI channel. Up to 15 tracks get their own, in order (0-8, 10-15): the plain layout, so
+ * exports stay byte-identical. With more tracks, MIDI channels are shared by GM program: each distinct program gets a
+ * channel of its own first (in order of first use, while that is possible), spare channels go to the next tracks in song
+ * order, and the rest become guests on the channel with the same program that has the fewest notes. When there are more
+ * programs than channels, a guest goes onto the least-used channel whatever its program is (it follows that channel's program).
+ */
+export function shareMelodicChannels(programs: number[], notes: number[]): SharedChannel[] {
+  if (programs.length <= MELODIC_SLOTS.length) return programs.map((_, i) => ({ midiCh: MELODIC_SLOTS[i]!, guest: false, host: i }))
+  const first = new Map<number, number>()
+  programs.forEach((p, i) => {
+    if (!first.has(p)) first.set(p, i)
+  })
+  const load: number[] = [] // notes per slot in use
+  const hostOf: number[] = [] // melodic index owning each slot in use
+  const slotProgram: number[] = []
+  const out: SharedChannel[] = []
+  const fewest = (slots: number[]): number => slots.reduce((best, s) => (load[s]! < load[best]! ? s : best), slots[0]!)
+  programs.forEach((p, i) => {
+    const free = MELODIC_SLOTS.length - load.length
+    const reserved = [...first.values()].filter((at) => at > i).length // programs still to appear need a slot each
+    let slot: number
+    let guest = true
+    const same = load.map((_, s) => s).filter((s) => slotProgram[s] === p)
+    if (same.length === 0 ? free > 0 : free > reserved) {
+      slot = load.length
+      load.push(0)
+      hostOf.push(i)
+      slotProgram.push(p)
+      guest = false
+    } else slot = fewest(same.length > 0 ? same : load.map((_, s) => s))
+    load[slot]! += notes[i]!
+    out.push({ midiCh: MELODIC_SLOTS[slot]!, guest, host: hostOf[slot]! })
+  })
+  return out
 }
 
 /** Convert a song to a Standard MIDI File. */
@@ -166,50 +219,62 @@ export function exportMidi(song: Song, opts: MidiExportOptions = {}): MidiExport
   const defs = songChannelDefs(song)
   const trackLists: { name: string; drum: boolean; list: Timed[]; channelIndex: number }[] = []
   let noteCount = 0
-  let nextMelodic = 0
-  const allocMelodic = (): number => {
-    const ch = nextMelodic >= 9 ? nextMelodic + 1 : nextMelodic
-    nextMelodic = Math.min(14, nextMelodic + 1)
-    return Math.min(15, ch)
-  }
-
-  song.channels.forEach((chan, ci) => {
+  const sims = song.channels.map((chan, ci) => {
     const def = defs.find((d) => d.id === chan.id)
     const sim = simulateChannel(song, chan, ci, rows, rowTick, endTick, arpMode, def?.kind)
-    if (sim.notes.length === 0) return
     const melodic = sim.notes.filter((n) => !n.drum)
-    const drums = sim.notes.filter((n) => n.drum)
+    const mean = melodic.length > 0 ? melodic.reduce((a, n) => a + n.pitch, 0) / melodic.length : 0
+    return { sim, melodic, drums: sim.notes.filter((n) => n.drum), mean }
+  })
+
+  // the melodic tracks (in channel order) and their MIDI channels
+  const melodicAt = sims.flatMap((s, ci) => (s.melodic.length > 0 ? [ci] : []))
+  const programOf = (ci: number): number => gmProgramFor(song.instruments[sims[ci]!.melodic[0]!.inst], sims[ci]!.mean)
+  const shared = shareMelodicChannels(melodicAt.map(programOf), melodicAt.map((ci) => sims[ci]!.melodic.length))
+  const merged: NonNullable<MidiExport['merged']> = []
+
+  song.channels.forEach((chan, ci) => {
+    const { sim, melodic, drums, mean } = sims[ci]!
+    if (sim.notes.length === 0) return
     if (melodic.length > 0) {
-      const mean = melodic.reduce((a, n) => a + n.pitch, 0) / melodic.length
-      const midiCh = allocMelodic()
+      const slot = shared[melodicAt.indexOf(ci)]!
+      const midiCh = slot.midiCh
       const list: Timed[] = []
       add(list, 0, PRI_CTRL, metaText(0, META_TRACK_NAME, chan.name || chan.id))
       const cc = (tick: number, controller: number, value: number): void => {
         add(list, tick, PRI_CTRL, { tick, kind: 'cc', channel: midiCh, controller, value: Math.max(0, Math.min(127, Math.round(value))) })
       }
-      cc(0, 7, 100)
-      cc(0, 10, Math.round(64 + (chan.pan ?? 0) * 63))
-      cc(0, 101, 0)
-      cc(0, 100, 0)
-      cc(0, 6, 12) // RPN 0: pitch bend range +-12 semitones
-      cc(0, 38, 0)
-      cc(0, 101, 127)
-      cc(0, 100, 127)
+      if (!slot.guest) {
+        cc(0, 7, 100)
+        cc(0, 10, Math.round(64 + (chan.pan ?? 0) * 63))
+        cc(0, 101, 0)
+        cc(0, 100, 0)
+        cc(0, 6, 12) // RPN 0: pitch bend range +-12 semitones
+        cc(0, 38, 0)
+        cc(0, 101, 127)
+        cc(0, 100, 127)
+      }
       let program = -1
       for (const n of melodic) {
         const p = gmProgramFor(song.instruments[n.inst], mean)
         if (p !== program) {
           program = p
-          add(list, n.start, PRI_CTRL, { tick: n.start, kind: 'program', channel: midiCh, program: p })
+          if (!slot.guest) add(list, n.start, PRI_CTRL, { tick: n.start, kind: 'program', channel: midiCh, program: p })
         }
         add(list, n.start, PRI_ON, { tick: n.start, kind: 'noteOn', channel: midiCh, note: n.pitch, velocity: n.vel })
         add(list, n.end, PRI_OFF, { tick: n.end, kind: 'noteOff', channel: midiCh, note: n.pitch, velocity: 0 })
         noteCount++
       }
-      for (const c of sim.ctrls) {
-        if (c.kind === 'bend') add(list, c.tick, PRI_CTRL, { tick: c.tick, kind: 'pitchBend', channel: midiCh, value: c.value })
-        else if (c.kind === 'expr') cc(c.tick, 11, c.value)
-        else cc(c.tick, 10, c.value)
+      if (!slot.guest) {
+        for (const c of sim.ctrls) {
+          if (c.kind === 'bend') add(list, c.tick, PRI_CTRL, { tick: c.tick, kind: 'pitchBend', channel: midiCh, value: c.value })
+          else if (c.kind === 'expr') cc(c.tick, 11, c.value)
+          else cc(c.tick, 10, c.value)
+        }
+      } else {
+        const hostCi = melodicAt[slot.host]!
+        const host = song.channels[hostCi]!
+        merged.push({ track: chan.name || chan.id, into: host.name || host.id, midiChannel: midiCh + 1, sameProgram: programOf(ci) === programOf(hostCi) })
       }
       list.push({ tick: endTick, pri: 9, seq: seq++, ev: { tick: endTick, kind: 'meta', type: 0x2f, data: new Uint8Array(0) } })
       trackLists.push({ name: chan.name || chan.id, drum: false, list, channelIndex: ci })
@@ -246,7 +311,8 @@ export function exportMidi(song: Song, opts: MidiExportOptions = {}): MidiExport
     seconds,
     ...(loop ? { loop } : {}),
     tempoChanges: Math.max(0, tempoAt.length - 1),
-    trackNames: trackLists.map((t) => t.name)
+    trackNames: trackLists.map((t) => t.name),
+    ...(merged.length > 0 ? { merged } : {})
   }
 }
 

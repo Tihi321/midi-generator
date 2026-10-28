@@ -25,7 +25,7 @@ import {
 } from '../../core'
 import { addInstrumentWithSample } from '../editing'
 import { defineTool } from '../registry'
-import { CHANNEL_DESC, channelRef, chipNotReadyNote, chipIsPlayable, instrumentRef, obj, ok, plural, songSession } from '../util'
+import { CHANNEL_DESC, channelIdsText, channelRef, chipNotReadyNote, chipIsPlayable, instrumentRef, obj, ok, plural, songSession } from '../util'
 
 const PARAMS_DESC =
   'Instrument data. add_instrument: a full instrument {"kind":..., "name":...} (or overrides on top of a preset). Kinds and fields: ' +
@@ -33,7 +33,9 @@ const PARAMS_DESC =
   'gb-pulse {env:{init 0-15,dir "up"|"down",pace 0-7}, duty 0-3, sweep(P1 only){pace,dir,step}, macros}, gb-wave {wave: 32 values 0-15 or a 32-char hex string, level 0-3 (1=100%,2=50%,3=25%)}, gb-noise {env, short:boolean}, ' +
   'psg / psg-noise {macros, noiseMode "white"|"periodic"} (Genesis S1-S3 / NO), pce-wave {waves: [[32 values 0-31], ...] (timbre macro or Wxx picks the wave), noise?: boolean (C5/C6 only), macros}, ' +
   'fm {alg 0-7, fb 0-7, ams 0-3, pms 0-7, ops: 4 x {ar 0-31, dr 0-31, sr 0-31, rr 0-15, sl 0-15, tl 0-127, ks 0-3, ml 0-15, dt -3..3, ssg?, am?}}, ' +
-  'snes-sample {sample: slot id (see list_samples / generate_sample), baseNote, env: {adsr:[a,d,sl,sr]} or {gain:{mode,rate}}, echo: boolean}, sample {sample, baseNote?} (NES DPCM, Genesis F6 DAC). Prefer presets for FM/SNES. ' +
+  'snes-sample {sample: slot id (see list_samples / generate_sample), baseNote, env: {adsr:[a,d,sl,sr]} or {gain:{mode,rate}}, echo: boolean}, sample {sample, baseNote?} (NES DPCM, Genesis F6 DAC), ' +
+  'psx-sample (PS1) {sample, baseNote, fine?, adsr: {attack 0-127, attackExp, decay 0-15, sustainLevel 0-15, sustainRate 0-127, sustainDir "dec"|"inc", sustainExp, release 0-31, releaseExp}, reverb: boolean, pmod?: boolean (pitch modulated by the voice before it, not on V1), noise?: {shift 0-15, step 0-3}}, ' +
+  'aica-sample (Dreamcast) {sample, baseNote, fine?, format: "pcm16"|"pcm8"|"adpcm", aeg: {ar, d1r, d2r, rr 0-31, dl 0-31, krs? 0-15}, filter?: {q 0-31, flv: [5 values 0-8191], far, fd1r, fd2r, frr 0-31}, lfo?: {freq 0-31, pitchWave "saw"|"square"|"tri"|"noise", pitchDepth 0-7, ampWave, ampDepth 0-7, reset: boolean}, send: 0-15 (DSP send)}. Prefer presets for FM/SNES/PS1/Dreamcast. ' +
   'Macros are objects {values:[...],loop?,release?,mode?} or text like "15 12 9 | 6 3 / 0" (| = loop point, / = release point). vol macro 0-15 multiplies the cell volume, arp is in semitones, pitch in 1/16 semitone per tick. ' +
   'Example: {"kind":"nes-pulse","name":"zap","macros":{"vol":"15 12 9 6 3 0","timbre":"1","pitch":"-24 -20 -16 -12 -8 -4"}}.'
 
@@ -168,7 +170,7 @@ export const instrumentTools = [
       const added = song.instruments[res.index]!
       const chans = channelsFor(song, added.kind)
       return ok(
-        `Added instrument @${res.index} "${added.name}" (${added.kind}${added.role ? `, role ${added.role}` : ''}${added.presetId ? `, preset ${added.presetId}` : ''}). Use it in tracker text as @${instrumentSlug(added.name)} or @${res.index}. Plays on: ${chans.join(', ') || '(no channel of this chip)'}.${res.sampleAdded ? ` Added sample "${res.sampleAdded}" to the song (list_samples shows it).` : ''}`
+        `Added instrument @${res.index} "${added.name}" (${added.kind}${added.role ? `, role ${added.role}` : ''}${added.presetId ? `, preset ${added.presetId}` : ''}). Use it in tracker text as @${instrumentSlug(added.name)} or @${res.index}. Plays on: ${channelIdsText(chans) || '(no channel of this chip)'}.${res.sampleAdded ? ` Added sample "${res.sampleAdded}" to the song (list_samples shows it).` : ''}`
       )
     }
   }),
@@ -244,7 +246,7 @@ export const instrumentTools = [
       const index = requireInstrumentIndex(song, args.instrument)
       const inst = song.instruments[index]!
       const u = instrumentUsage(song, index)
-      return ok(`Instrument @${index} "${inst.name}": used by ${u.count} cell(s); plays on ${channelsFor(song, inst.kind).join(', ') || 'no channel'}.\n${JSON.stringify(describeInstrument(inst))}`)
+      return ok(`Instrument @${index} "${inst.name}": used by ${u.count} cell(s); plays on ${channelIdsText(channelsFor(song, inst.kind)) || 'no channel'}.\n${JSON.stringify(describeInstrument(inst))}`)
     }
   })
 ]

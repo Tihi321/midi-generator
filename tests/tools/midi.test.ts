@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseMidi, serializeProject } from '../../src/core'
+import { melodicSong } from '../core/midiFixtures'
 import { resultText, songSetup } from './helpers'
 
 async function writeSong(t: ReturnType<typeof songSetup>): Promise<void> {
@@ -150,5 +151,26 @@ describe('convert_chip', () => {
       const analysis = resultText(await t.ok('analyze_song'))
       expect(analysis).not.toMatch(/ERROR/)
     }
+  })
+})
+describe('export_midi with more than 15 melodic channels', () => {
+  it('lists the tracks that share a MIDI channel, and says nothing for songs that fit', async () => {
+    const t = songSetup({ song: melodicSong(24) })
+    const text = resultText(await t.ok('export_midi', { name: 'wide' }))
+    expect(text).toContain('Exported wide.mid: 25 tracks')
+    expect(text).toMatch(/MIDI has 15 melodic channels: 9 tracks share a channel with an earlier track \(same GM program first, else the least-used channel\)/)
+    expect(text).toMatch(/Voice 1\d -> Voice \d+ \(ch \d+\)/)
+    const m = parseMidi(t.services.files.get('/mem/exports/wide.mid')!)
+    expect(m.tracks).toHaveLength(25)
+    const small = songSetup({ song: melodicSong(15) })
+    expect(resultText(await small.ok('export_midi', { name: 'fits' }))).not.toContain('MIDI has 15 melodic channels')
+  })
+
+  it('names the sharing in the tool descriptions', () => {
+    const t = songSetup()
+    const d = new Map(t.registry.defs().map((x) => [x.name, x.description]))
+    expect(d.get('export_midi')).toContain('MIDI has 15 melodic channels')
+    expect(d.get('convert_chip')).toContain('V2 on PS1 and Dreamcast')
+    expect(d.get('import_midi')).toContain('PS1 and Dreamcast have 16 to 64 voices')
   })
 })

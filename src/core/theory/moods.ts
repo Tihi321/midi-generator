@@ -364,14 +364,14 @@ export const CHIP_IDIOMS: Record<ChipId, string[]> = {
   ps1: [
     'Everything is a sample (4-bit ADPCM grit): pads and strings with the hardware reverb sound huge; keep bass and kick dry.',
     'Reverb is global: pick a preset (studio-large, hall, space-echo) and depth, then switch it per voice with E01/E00.',
-    'Sixteen voices in a fixed layout: bass V1, leads V2/V3, pads V4-V6, arp V7, pluck V8, drums V13-V16; 24-voice songs add free voices for doubling.',
+    'Sixteen voices in a fixed layout: bass V1, leads V2/V3, pads V4-V6, arp V7, pluck V8, toms V12, kick V13, snare V14, hats V15, crash V16; 24-voice songs add free voices for doubling.',
     'Pitch modulation (pmod, from V2 on) and the noise generator give metallic and FM-like colours; watch the 512 KB of SPU RAM.'
   ],
   dreamcast: [
     'Clean 16-bit samples (or 8-bit / ADPCM to save the 2 MB of RAM) on up to 64 slots; every slot has its own envelope, LFO and filter.',
     'The resonant filter envelope shapes brass swells and bass plucks; the LFO adds vibrato and tremolo.',
     'The DSP is global: choose chorus-hall for pads and leads, delay or echo for rhythmic repeats, and switch it per slot with E01/E00.',
-    'Sixteen slots in a fixed layout: bass V1, leads V2/V3, pads V4-V6, arp V7, pluck V8, drums V13-V16; 32 and 64 slots add free voices for doubling.'
+    'Sixteen slots in a fixed layout: bass V1, leads V2/V3, pads V4-V6, arp V7, pluck V8, toms V12, kick V13, snare V14, hats V15, crash V16; 32 and 64 slots add free voices for doubling.'
   ]
 }
 
@@ -446,7 +446,7 @@ function chipPlan(chip: ChipId, seed: MoodSeed): { channels: ChannelPlan[]; idio
         { channel: 'V13', role: 'kick', part: 'kick' },
         { channel: 'V14', role: 'snare', part: `snare and claps (${fx} on)` },
         { channel: 'V15', role: 'hihat', part: 'hats' },
-        { channel: 'V16', role: 'tom', part: 'toms and crash' }
+        { channel: 'V16', role: 'crash', part: 'crash cymbal (first bar of a phrase); the toms play on V12' }
       ]
       break
     }

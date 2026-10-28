@@ -6,6 +6,7 @@ import {
   PITCH_CLASSES,
   SCALE_IDS,
   createSong,
+  cloneSong,
   createSongInfoCommand,
   listChips,
   parseProject,
@@ -14,10 +15,11 @@ import {
   rowsPerBar,
   serializeProject,
   summarizeSong,
+  validateSong,
   formatNote
 } from '../../core'
 import { defineTool } from '../registry'
-import { chipIsPlayable, chipNotReadyNote, describeOrderRow, obj, ok, plural, songSession, withExtension, safeFileName } from '../util'
+import { MANY_CHANNELS, channelIdsText, chipIsPlayable, chipNotReadyNote, describeOrderRow, obj, ok, plural, songSession, withExtension, safeFileName } from '../util'
 
 const timingFields = {
   bpm: z.number().min(20).max(400).optional().describe('Tempo in beats per minute (20..400). Default 120 (or the mood recipe\'s default).'),
@@ -46,7 +48,11 @@ export function describeSong(song: Song, extra: { undo?: string; cursor?: string
   lines.push('Orders (pattern number per channel):')
   song.orders.forEach((_, o) => lines.push(`  ${o}: ${describeOrderRow(song, o)}`))
   lines.push('Channels (notes written):')
-  lines.push('  ' + s.channels.map((c) => `${c.id} ${c.name}${c.muted ? ' [muted]' : ''}: ${c.notes}`).join(' | '))
+  if (s.channels.length > MANY_CHANNELS) {
+    // PS1 24 voices, Dreamcast 32 / 64: the channels with notes (or muted), then how many are empty
+    const used = s.channels.filter((c) => c.notes > 0 || c.muted)
+    lines.push('  ' + (used.length ? used.map((c) => `${c.id}${c.muted ? ' [muted]' : ''}: ${c.notes}`).join(' | ') + ' | ' : '') + `${plural(s.channels.length - used.length, 'other channel')} empty (${s.channels.length} in all: ${channelIdsText(s.channels.map((c) => c.id))})`)
+  } else lines.push('  ' + s.channels.map((c) => `${c.id} ${c.name}${c.muted ? ' [muted]' : ''}: ${c.notes}`).join(' | '))
   lines.push(
     song.instruments.length === 0
       ? 'Instruments: none yet (add_instrument with a preset or role first).'
@@ -84,7 +90,7 @@ export const songTools = [
     name: 'new_song',
     group: 'song',
     description:
-      'Replace the open song with a new empty one (undoable). Pick the chip ("nes", "gb", "genesis", "snes", "pce"), tempo, key and scale. Optionally give a mood ("heroic", "spooky", ...) to take BPM, key, scale, groove and pattern length from its recipe (get_mood_recipe shows it). The channels come from the chip (NES: P1 P2 TR NO). The song starts with one order row of empty patterns, 64 rows long, no instruments. Example: {"chip":"nes","name":"Overworld","bpm":132,"key":"D","scale":"mixolydian"}.',
+      'Replace the open song with a new empty one (undoable). Pick the chip ("nes", "gb", "genesis", "snes", "pce", "ps1" for the PlayStation SPU, "dreamcast" for the Sega AICA), tempo, key and scale. Optionally give a mood ("heroic", "spooky", ...) to take BPM, key, scale, groove and pattern length from its recipe (get_mood_recipe shows it). The channels come from the chip (NES: P1 P2 TR NO; PS1 and Dreamcast: V1..Vn sample voices, 16 by default). The song starts with one order row of empty patterns, 64 rows long, no instruments. The voice count of PS1 (16 or 24) and Dreamcast (16, 32 or 64) is fixed here with chipConfig {"voices":24}; the reverb (PS1) and DSP (Dreamcast) presets go there too. Examples: {"chip":"nes","name":"Overworld","bpm":132,"key":"D","scale":"mixolydian"}, {"chip":"ps1","mood":"synthwave","chipConfig":{"voices":24,"reverb":{"preset":"hall"}}}, {"chip":"dreamcast","chipConfig":{"voices":32,"dsp":{"preset":"chorus-hall"}}}.',
     input: obj({
       chip: z.string().min(1).describe(`Chip: ${CHIP_IDS.join(', ')} (loose names like "game boy" work).`),
       name: z.string().min(1).optional().describe('Song name (also the default export file name).'),
@@ -94,7 +100,7 @@ export const songTools = [
       scale: scaleField.optional(),
       patternLength: z.number().int().min(1).max(256).optional().describe('Rows per pattern (default 64 = 4 bars of 16 rows).'),
       authenticity: z.enum(['strict', 'relaxed']).optional().describe('"strict" (default): writes that break the chip\'s limits fail with a fix. "relaxed": they become warnings.'),
-      chipConfig: z.record(z.string(), z.unknown()).optional().describe('Chip settings, e.g. NES {"dpcm":true} adds the DM channel, Genesis {"fm6Dac":true}, {"region":"pal"}.'),
+      chipConfig: z.record(z.string(), z.unknown()).optional().describe('Chip settings, e.g. NES {"dpcm":true} adds the DM channel, Genesis {"fm6Dac":true}, {"region":"pal"}; PS1 {"voices":16|24,"reverb":{"preset":"studio-large","depth":0.5,"inputVol":1}}; Dreamcast {"voices":16|32|64,"dsp":{"preset":"chorus-hall","mix":0.35,"time":0.5,"feedback":0.35,"chorusRate":0.3,"chorusDepth":0.4,"delayMs":300}}. Fields you leave out keep their defaults.'),
       tags: z.array(z.string()).optional().describe('Free tags.')
     }),
     handler: (args, ctx) => {
@@ -118,7 +124,8 @@ export const songTools = [
         chipConfig: args.chipConfig as never
       })
       session.replaceSong(song, { history: 'record', label: `New ${chip.toUpperCase()} song` })
-      const defs = song.channels.map((c) => `${c.id} (${c.name})`).join(', ')
+      // the sample chips have 16..64 identical voices: V1..Vn instead of one entry each
+      const defs = song.channels.length > 16 ? `${song.channels[0]!.id}..${song.channels[song.channels.length - 1]!.id} (${song.channels.length} sample voices)` : song.channels.map((c) => `${c.id} (${c.name})`).join(', ')
       const parts = [`Created a new ${chip.toUpperCase()} song "${song.name}": ${song.timing.bpm} BPM, ${song.meta.key} ${song.meta.scale}, ${song.patternLength} rows per pattern, ${song.authenticity}.`]
       parts.push(`Channels: ${defs}.`)
       if (!chipIsPlayable(chip)) parts.push(chipNotReadyNote(chip))
@@ -131,7 +138,7 @@ export const songTools = [
     name: 'set_song_info',
     group: 'song',
     description:
-      'Change song settings: name, tempo (bpm, speed, rowsPerBeat, beatsPerBar, groove), key, scale, moods, tags, notes, authenticity, or non-structural chip config (region, mixModel, lfo, SNES echo). Only the fields you pass change. groove: [] or null removes swing. Example: {"bpm":150,"key":"A","scale":"minor"}. The key/scale are metadata for analysis and diatonic transpose; they do not rewrite notes.',
+      'Change song settings: name, tempo (bpm, speed, rowsPerBeat, beatsPerBar, groove), key, scale, moods, tags, notes, authenticity, or non-structural chip config (region, mixModel, lfo, SNES echo, PS1 reverb, Dreamcast dsp; nested settings merge field by field, so {"reverb":{"preset":"hall"}} keeps depth). The voice count (voices) is fixed by new_song. Only the fields you pass change. groove: [] or null removes swing. Example: {"bpm":150,"key":"A","scale":"minor"}. The key/scale are metadata for analysis and diatonic transpose; they do not rewrite notes.',
     input: obj({
       name: z.string().min(1).optional().describe('New song name (also the default export file name).'),
       ...timingFields,
@@ -142,7 +149,7 @@ export const songTools = [
       tags: z.array(z.string()).optional().describe('Tags (replaces the list).'),
       notes: z.string().nullable().optional().describe('Free-form notes about the song; "" or null clears.'),
       authenticity: z.enum(['strict', 'relaxed']).optional().describe('"strict": writes that break the chip limits fail with a fix; "relaxed": they become warnings.'),
-      chipConfig: z.record(z.string(), z.unknown()).optional().describe('Non-structural chip settings to merge (region, mixModel, lfo, echo). dpcm/fm6Dac need a new_song.')
+      chipConfig: z.record(z.string(), z.unknown()).optional().describe('Non-structural chip settings to merge (region, mixModel, lfo, echo, PS1 reverb {preset, depth, inputVol}, Dreamcast dsp {preset, mix, time, feedback, chorusRate, chorusDepth, delayMs}). dpcm/fm6Dac/voices need a new_song.')
     }),
     handler: (args, ctx) => {
       const session = songSession(ctx)
@@ -151,6 +158,13 @@ export const songTools = [
       const patch = { ...args, groove: args.groove && args.groove.length === 0 ? null : args.groove } as Parameters<typeof createSongInfoCommand>[1]
       const given = Object.keys(args)
       if (given.length === 0) return ok('Nothing to change: pass at least one field (bpm, key, scale, ...).')
+      if (args.chipConfig) {
+        // PS1 reverb / Dreamcast dsp values are checked before they are applied (a bad preset name would break rendering)
+        const probe = cloneSong(song)
+        createSongInfoCommand(probe, patch).apply(probe)
+        const bad = validateSong(probe).filter((i) => i.severity === 'error' && i.message.startsWith('chipConfig.'))
+        if (bad.length > 0) throw new Error(bad.map((i) => i.message).join(' '))
+      }
       session.execute(createSongInfoCommand(song, patch))
       const after = JSON.stringify({ t: song.timing, m: song.meta, a: song.authenticity, n: song.name, c: song.chipConfig })
       const t = song.timing
@@ -187,9 +201,18 @@ export const songTools = [
         if (want && c.id !== want) continue
         out.push(`${c.id} - ${c.name} (${c.era})${chipIsPlayable(c.id) ? '' : ' [coming: sound engine not in this build yet]'}`)
         out.push(`  ${c.description}`)
-        for (const ch of c.channels) {
-          out.push(`  ${ch.id} ${ch.name} [${ch.kind}] ${formatNote(ch.noteRange[0])}..${formatNote(ch.noteRange[1])}${ch.hasVolume ? '' : ', no volume'}; instruments: ${ch.accepts.join('/')}; fx: ${ch.effects}`)
+        // a run of 12+ identical channels (the PS1 and Dreamcast voices; the SNES has 8) is one line: V1..V16
+        const same = (a: (typeof c.channels)[number], b: (typeof c.channels)[number]): boolean =>
+          a.kind === b.kind && a.noteRange[0] === b.noteRange[0] && a.noteRange[1] === b.noteRange[1] && a.hasVolume === b.hasVolume && a.accepts.join() === b.accepts.join() && a.effects === b.effects && a.description === b.description
+        for (let i = 0; i < c.channels.length; ) {
+          const ch = c.channels[i]!
+          let end = i + 1
+          while (end < c.channels.length && same(ch, c.channels[end]!)) end++
+          const run = end - i >= 12
+          const last = c.channels[end - 1]!
+          out.push(`  ${run ? `${ch.id}..${last.id} ${ch.name}..${last.name.replace(/^\D+/, '')}` : `${ch.id} ${ch.name}`} [${ch.kind}] ${formatNote(ch.noteRange[0])}..${formatNote(ch.noteRange[1])}${ch.hasVolume ? '' : ', no volume'}; instruments: ${ch.accepts.join('/')}; fx: ${ch.effects}`)
           out.push(`      ${ch.description}`)
+          i = run ? end : i + 1
         }
         for (const n of c.notes) out.push(`  * ${n}`)
       }

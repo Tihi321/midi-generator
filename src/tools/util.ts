@@ -109,8 +109,27 @@ export function otherUsers(song: Song, channelIndex: number, pattern: number, ex
   return out
 }
 
+/** More channels than this (PS1 24 voices, Dreamcast 32 / 64) and the tools summarise instead of listing every channel. */
+export const MANY_CHANNELS = 16
+
+/** Channel ids as text: all of them, or "V1..V64 (64 channels)" when the list is long and consecutive. */
+export function channelIdsText(ids: string[]): string {
+  if (ids.length <= MANY_CHANNELS) return ids.join(', ')
+  return `${ids[0]}..${ids[ids.length - 1]} (${ids.length} channels)`
+}
+
 export function describeOrderRow(song: Song, order: number): string {
   const row = song.orders[order]
   if (!row) return `(no order ${order})`
-  return song.channels.map((c, i) => `${c.id}:${row[i]}`).join(' ')
+  if (song.channels.length <= MANY_CHANNELS) return song.channels.map((c, i) => `${c.id}:${row[i]}`).join(' ')
+  // many channels: runs of 3 or more consecutive channels with the same pattern become "V4-V64:0"
+  const parts: string[] = []
+  for (let i = 0; i < song.channels.length; ) {
+    let end = i + 1
+    while (end < song.channels.length && row[end] === row[i]) end++
+    if (end - i >= 3) parts.push(`${song.channels[i]!.id}-${song.channels[end - 1]!.id}:${row[i]}`)
+    else for (let k = i; k < end; k++) parts.push(`${song.channels[k]!.id}:${row[k]}`)
+    i = end
+  }
+  return parts.join(' ')
 }

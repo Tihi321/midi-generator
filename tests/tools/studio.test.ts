@@ -1,5 +1,6 @@
 // compose_track, render_audio and the song-session tools (list_songs, open_song, save_song, delete_song).
 
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { MOOD_IDS, readWav, renderSong, serializeProject, songSeconds, validateSong } from '../../src/core'
 import { composeSong } from '../../src/tools'
@@ -543,6 +544,98 @@ describe('song session tools', () => {
       expect(r.content.length, name).toBeGreaterThanOrEqual(2)
       expect(r.content[0]!.type).toBe('text')
       expect(() => lastJson(r), name).not.toThrow()
+    }
+  })
+})
+describe('synth moods through the tool host with render_audio', () => {
+  /** Output folder of the checks (virtual: the test services keep files in memory). */
+  const out = (name: string): string => join(process.cwd(), '.claude/temp/mdi10', name).replace(/\\/g, '/')
+
+  function wavStats(bytes: Uint8Array): { seconds: number; peak: number; rms: number } {
+    const w = readWav(bytes)
+    const L = w.channels[0]!
+    let peak = 0
+    for (const ch of w.channels) for (const v of ch) peak = Math.max(peak, Math.abs(v))
+    return { seconds: L.length / w.sampleRate, peak, rms: rms(L) }
+  }
+
+  it('compose_track synthwave on the PS1: chip, instrument override, loop after the intro and an audible file', async () => {
+    const t = songSetup()
+    const c = lastJson(await t.ok('compose_track', { mood: 'synthwave', seed: 1, bars: 8, intro: 2, instruments: { V2: 'ps1.lead.sync' } }))
+    expect(c).toMatchObject({ chip: 'ps1', mood: 'synthwave', bars: 8, introBars: 2, seed: 1 })
+    expect(t.session.song.instruments.some((i) => i.presetId === 'ps1.lead.sync')).toBe(true)
+    const path = out('synthwave-e2.wav')
+    const r = await t.ok('render_audio', { path, format: 'wav' })
+    const j = lastJson(r)
+    expect(j['path']).toBe(path)
+    expect(j['loopStartSec'] as number).toBeCloseTo((2 * 4 * 60) / (c['bpm'] as number), 2)
+    expect(j['durationSec'] as number).toBeCloseTo(c['durationSec'] as number, 2)
+    const s = wavStats(t.services.files.get(path)!)
+    expect(s.seconds).toBeCloseTo(j['durationSec'] as number, 2)
+    expect(s.peak).toBeGreaterThan(0.05)
+    expect(s.peak).toBeLessThanOrEqual(1)
+    expect(s.rms).toBeGreaterThan(0.01)
+    // the text ends with one JSON item
+    const texts = r.content.filter((x) => x.type === 'text')
+    expect(() => JSON.parse((texts[texts.length - 1] as { text: string }).text)).not.toThrow()
+  }, 60000)
+
+  it('outrun on the Dreamcast, converted to the SNES, still renders', async () => {
+    const t = songSetup()
+    const c = lastJson(await t.ok('compose_track', { mood: 'outrun', chip: 'dreamcast', seed: 1, bars: 4, intro: 2 }))
+    expect(c).toMatchObject({ chip: 'dreamcast', mood: 'outrun', introBars: 2 })
+    const dc = lastJson(await t.ok('render_audio', { path: out('outrun-e2.wav'), format: 'wav' }))
+    expect(dc['loopStartSec'] as number).toBeCloseTo((2 * 4 * 60) / (c['bpm'] as number), 2)
+    expect(wavStats(t.services.files.get(out('outrun-e2.wav'))!).peak).toBeGreaterThan(0.05)
+    await t.ok('convert_chip', { chip: 'snes' })
+    expect(t.session.song.chip).toBe('snes')
+    const snes = lastJson(await t.ok('render_audio', { path: out('outrun-snes-e2.wav'), format: 'wav' }))
+    expect(snes['durationSec'] as number).toBeCloseTo(c['durationSec'] as number, 1)
+    expect(wavStats(t.services.files.get(out('outrun-snes-e2.wav'))!).rms).toBeGreaterThan(0.005)
+  }, 60000)
+
+  it('compose_sfx on the PS1 renders in the same call', async () => {
+    const t = songSetup()
+    const j = lastJson(await t.ok('compose_sfx', { kind: 'stinger', sound: 'success', chip: 'ps1', seed: 3, path: out('success-ps1-e2.wav'), format: 'wav' }))
+    expect(j).toMatchObject({ kind: 'stinger', sound: 'success', chip: 'ps1' })
+    expect(wavStats(t.services.files.get(out('success-ps1-e2.wav'))!).peak).toBeGreaterThan(0.05)
+  }, 60000)
+
+  it('the tool texts name the seven chips, the synth moods and their default chips', () => {
+    const t = songSetup()
+    const props = (name: string): Record<string, { description?: string }> => (t.registry.defs().find((d) => d.name === name)!.parameters as { properties: Record<string, { description?: string }> }).properties
+    const desc = (name: string): string => t.registry.defs().find((d) => d.name === name)!.description
+    for (const chip of CHIPS) {
+      expect(props('compose_track')['chip']!.description, `compose_track ${chip}`).toContain(chip)
+      expect(props('compose_sfx')['chip']!.description, `compose_sfx ${chip}`).toContain(chip)
+      expect(desc('new_song'), `new_song ${chip}`).toContain(chip === 'ps1' || chip === 'dreamcast' ? `"${chip}"` : chip)
+      expect(props('get_mood_recipe')['chip']!.description, `get_mood_recipe ${chip}`).toContain(chip)
+    }
+    const track = desc('compose_track')
+    for (const mood of ['synthwave', 'outrun', 'darkwave', 'dreamwave']) expect(track, mood).toContain(mood)
+    expect(track).toContain('default to PS1 (synthwave, darkwave) and Dreamcast (outrun, dreamwave)')
+    expect(track).toContain('"V2":"dreamcast.lead.sync"')
+    expect(props('compose_track')['instruments']!.description).toContain('{"V2":"ps1.lead.sync"}')
+    expect(desc('new_song')).toContain('"voices":24')
+    expect(desc('new_song')).toContain('"reverb":{"preset":"hall"}')
+    expect(desc('new_song')).toContain('"dsp":{"preset":"chorus-hall"}')
+    expect(desc('set_song_info')).toContain('PS1 reverb, Dreamcast dsp')
+    expect(desc('get_mood_recipe')).toContain('synthwave, outrun, darkwave, dreamwave')
+    const kinds = (t.registry.defs().find((d) => d.name === 'add_instrument')!.parameters as { properties: { params: { description: string } } }).properties.params.description
+    expect(kinds).toContain('psx-sample (PS1) {sample, baseNote, fine?, adsr:')
+    expect(kinds).toContain('aica-sample (Dreamcast) {sample, baseNote, fine?, format:')
+  })
+
+  it('get_mood_recipe lists the synth moods and plans the crash on V16 and names the toms on V12', async () => {
+    const t = songSetup()
+    const list = await t.text('get_mood_recipe')
+    for (const mood of ['synthwave', 'outrun', 'darkwave', 'dreamwave']) expect(list).toContain(`${mood}: `)
+    for (const chip of ['ps1', 'dreamcast']) {
+      const r = await t.text('get_mood_recipe', { mood: 'retrowave', chip })
+      expect(r, chip).toContain('V16 (crash): crash cymbal (first bar of a phrase); the toms play on V12')
+      expect(r, chip).toContain('toms V12, kick V13')
+      expect(r, chip).not.toContain('toms and crash')
+      expect(r, chip).toContain('V13 (kick): kick')
     }
   })
 })

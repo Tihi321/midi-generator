@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { analyzeSong, formatDrumText, formatIssues, formatMelodyText, formatTrackerText, requireChannelIndex, rowsPerBar } from '../../core'
 import { defineTool, imageResult } from '../registry'
 import { renderPianoRoll } from '../render'
-import { CHANNEL_DESC, ORDER_DESC, channelRef, describeOrderRow, obj, ok, pickChannels, pickOrder, plural, songSession } from '../util'
+import { CHANNEL_DESC, MANY_CHANNELS, ORDER_DESC, channelRef, describeOrderRow, obj, ok, pickChannels, pickOrder, plural, songSession } from '../util'
 
 export const readingTools = [
   defineTool({
@@ -15,7 +15,7 @@ export const readingTools = [
       format: z.enum(['tracker', 'melody', 'drums']).optional().describe('"tracker" (default), "melody" or "drums".'),
       order: z.number().int().min(0).optional().describe(ORDER_DESC),
       pattern: z.number().int().min(0).max(255).optional().describe('Read this pattern number instead of the order row\'s.'),
-      channels: z.array(channelRef).optional().describe('tracker: channels to include (default all).'),
+      channels: z.array(channelRef).optional().describe('tracker: channels to include (default all; on songs with more than 16 channels, PS1 24 voices and Dreamcast 32 / 64, the default is the channels that have notes in this pattern).'),
       channel: channelRef.optional().describe(`melody/drums: the channel. ${CHANNEL_DESC} Default: the cursor's channel.`),
       orders: z.number().int().min(1).max(32).optional().describe('melody: number of consecutive order rows to read (default 1).'),
       fromRow: z.number().int().min(0).optional().describe('First row (default 0).'),
@@ -29,10 +29,22 @@ export const readingTools = [
       const order = pickOrder(session, args.order)
       const range = { fromRow: args.fromRow, toRow: args.toRow }
       if (format === 'tracker') {
-        const idxs = pickChannels(song, args.channels)
+        let idxs = pickChannels(song, args.channels)
+        let note = ''
+        if (!args.channels?.length && song.channels.length > MANY_CHANNELS) {
+          // 24 to 64 voices: reading every column would be mostly empty cells (and very long), so read the ones with notes
+          const hasNotes = (i: number): boolean => {
+            const n = args.pattern ?? song.orders[order]![i]!
+            return song.patterns.get(`${song.channels[i]!.id}:${n}`)?.rows.some((c) => c !== null && c !== undefined) ?? false
+          }
+          const used = idxs.filter(hasNotes)
+          const keep = used.length > 0 ? used : idxs.slice(0, MANY_CHANNELS)
+          if (keep.length < song.channels.length) note = ` Only ${keep === used ? 'the channels that have notes' : 'the first 16 channels (all are empty)'} are shown (${keep.length} of ${song.channels.length}); pass "channels" to read others.`
+          idxs = keep
+        }
         const patterns = args.pattern !== undefined ? Object.fromEntries(idxs.map((i) => [song.channels[i]!.id, args.pattern!])) : undefined
         const text = formatTrackerText(song, { order, channels: idxs, patterns, sparse: args.sparse, ...range })
-        return ok(`Order ${order}${args.pattern !== undefined ? `, pattern ${args.pattern}` : ` (${describeOrderRow(song, order)})`}; pass this text to write_pattern to write it back:\n${text}`)
+        return ok(`Order ${order}${args.pattern !== undefined ? `, pattern ${args.pattern}` : ` (${describeOrderRow(song, order)})`}; pass this text to write_pattern to write it back:${note}\n${text}`)
       }
       const ci = args.channel === undefined ? session.cursor.channel : requireChannelIndex(song, args.channel)
       const ch = song.channels[ci]!
