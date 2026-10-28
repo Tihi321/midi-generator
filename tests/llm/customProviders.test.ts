@@ -81,6 +81,21 @@ describe('custom providers file', () => {
   })
 })
 
+describe('providers.md writes are serialized', () => {
+  it('parallel saves and removes lose no entry', async () => {
+    await writeFile(file, OLD)
+    const names = Array.from({ length: 8 }, (_, i) => `Srv ${i}`)
+    await Promise.all(names.map((name) => saveCustomEntry(file, { ...input, name })))
+    let ids = ((parseMd(await readFile(file, 'utf8')).data as { providers: { id: string }[] }).providers).map((p) => p.id)
+    expect(ids).toHaveLength(9)
+    await Promise.all([...ids.slice(1, 5).map((id) => removeCustomEntry(file, id)), setEntryEnabled(file, 'lmstudio', false), saveCustomEntry(file, { ...input, name: 'Late' })])
+    ids = ((parseMd(await readFile(file, 'utf8')).data as { providers: { id: string }[] }).providers).map((p) => p.id)
+    expect(ids).toHaveLength(6)
+    expect(ids).toContain('late')
+    expect(await readFile(file, 'utf8')).toContain('enabled: false')
+  })
+})
+
 describe('seed migration', () => {
   it('adds acp once to an old providers.md, keeps edits, records it, and does not add it back after a delete', async () => {
     await writeFile(file, OLD)
@@ -108,6 +123,24 @@ describe('seed migration', () => {
     await writeFile(file, own)
     expect(await migrateSeedProviders(dir, seedDir)).toEqual([])
     expect(await readFile(file, 'utf8')).toBe(own)
+  })
+
+  it('inserts acp before mock with the seed comments, CRLF-safe', async () => {
+    const withMock = OLD.replace('---\n# Providers', '  # the mock one\n  - id: mock\n    kind: mock\n    models: []\n---\n# Providers')
+    for (const nl of ['\n', '\r\n']) {
+      await rm(path.join(dir, SEED_STATE_FILE), { force: true })
+      await writeFile(file, withMock.replace(/\n/g, nl))
+      expect(await migrateSeedProviders(dir, seedDir)).toEqual(['acp'])
+      const out = await readFile(file, 'utf8')
+      if (nl === '\n') expect(out).not.toContain('\r')
+      else expect(out.replace(/\r\n/g, '')).not.toMatch(/[\r\n]/)
+      const ids = (parseMd(out).data as { providers: { id: string }[] }).providers.map((p) => p.id)
+      expect(ids).toEqual(['lmstudio', 'acp', 'mock'])
+      expect(out).toContain('# the mock one')
+      expect(out.indexOf('- id: acp')).toBeLessThan(out.indexOf('# the mock one'))
+      expect(out).toContain('# Providers body')
+      expect(out.slice(out.indexOf('- id: acp'), out.indexOf('# the mock one'))).toContain('#') // the seed's inline comments came along
+    }
   })
 
   it('does nothing without a seed folder', async () => {
@@ -168,5 +201,16 @@ describe('acp discovery and the LlmService form commands', () => {
     expect(gone.providers.find((p) => p.id === 'my-server')).toBeUndefined()
     expect(store.has('CUSTOM_MY_SERVER_API_KEY')).toBe(false)
     expect(gone.models.some((m) => m.provider === 'my-server')).toBe(false)
+  })
+
+  it('removing a provider resets the chat model when it was on that provider, and keeps it otherwise', async () => {
+    const { ops } = keys()
+    const svc = new LlmService({ seedDir, configDir: path.join(dir, 'config'), dataDir: dir, keys: ops, discover: false, fetchImpl })
+    await svc.saveProvider({ ...input, baseUrl: 'http://127.0.0.1:7461/v1', models: ['x'] })
+    await svc.setSelectedModel('my-server/x')
+    expect((await svc.removeProvider('my-server')).selectedModel).toBeNull()
+    await svc.saveProvider({ ...input, baseUrl: 'http://127.0.0.1:7461/v1', models: ['x'] })
+    await svc.setSelectedModel('lmstudio/other')
+    expect((await svc.removeProvider('my-server')).selectedModel).toBe('lmstudio/other')
   })
 })

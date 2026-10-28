@@ -3,6 +3,7 @@ import { isMap, isSeq, parseDocument } from 'yaml'
 import type { YAMLMap, YAMLSeq } from 'yaml'
 import { providersSchema } from './config'
 import { splitFrontmatter } from './md'
+import { withFileLock } from './fileLock'
 
 /** Custom OpenAI-compatible providers in config/providers.md (MDI-07). Pure file logic, no Electron. Same shape as Scriptorium SCP-44. */
 
@@ -101,7 +102,11 @@ function mergeModels(entry: YAMLMap | undefined, ids: string[] | undefined): unk
  * Adds a custom entry (`custom: true`) to providers.md, or edits the one named by `input.id`. Only that entry changes: comments and hand
  * edits of the rest of the file stay (a `yaml` document round trip). Returns the id and key name of the entry.
  */
-export async function saveCustomEntry(file: string, input: CustomProviderInput): Promise<{ id: string; apiKeyEnv: string; created: boolean }> {
+export function saveCustomEntry(file: string, input: CustomProviderInput): Promise<{ id: string; apiKeyEnv: string; created: boolean }> {
+  return withFileLock(file, () => saveCustomEntryImpl(file, input))
+}
+
+async function saveCustomEntryImpl(file: string, input: CustomProviderInput): Promise<{ id: string; apiKeyEnv: string; created: boolean }> {
   const name = input.name.trim()
   if (!name) throw new Error('the provider needs a name')
   const baseUrl = checkBaseUrl(input.baseUrl)
@@ -152,7 +157,11 @@ export async function saveCustomEntry(file: string, input: CustomProviderInput):
 }
 
 /** Removes a custom entry from providers.md. Returns its key name, or throws when it isn't a custom provider. */
-export async function removeCustomEntry(file: string, id: string): Promise<{ apiKeyEnv: string }> {
+export function removeCustomEntry(file: string, id: string): Promise<{ apiKeyEnv: string }> {
+  return withFileLock(file, () => removeCustomEntryImpl(file, id))
+}
+
+async function removeCustomEntryImpl(file: string, id: string): Promise<{ apiKeyEnv: string }> {
   const p = await readProviders(file)
   const entry = entryOf(p.list, id)
   if (!entry) throw new Error(`no provider "${id}"`)
@@ -164,7 +173,11 @@ export async function removeCustomEntry(file: string, id: string): Promise<{ api
 }
 
 /** Switches any provider (seed ones such as `acp` too) on or off. Only `enabled` changes. */
-export async function setEntryEnabled(file: string, id: string, enabled: boolean): Promise<void> {
+export function setEntryEnabled(file: string, id: string, enabled: boolean): Promise<void> {
+  return withFileLock(file, () => setEntryEnabledImpl(file, id, enabled))
+}
+
+async function setEntryEnabledImpl(file: string, id: string, enabled: boolean): Promise<void> {
   const p = await readProviders(file)
   const entry = entryOf(p.list, id)
   if (!entry) throw new Error(`no provider "${id}"`)

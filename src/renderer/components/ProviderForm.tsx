@@ -26,6 +26,7 @@ export function ProviderForm({ edit, modelIds, onDone }: { edit?: LlmProviderInf
   const save = (): void => {
     setBusy(true)
     setError('')
+    const known = new Set((useChat.getState().overview?.providers ?? []).map((p) => p.id))
     useChat
       .getState()
       .saveProvider({
@@ -40,7 +41,8 @@ export function ProviderForm({ edit, modelIds, onDone }: { edit?: LlmProviderInf
         enabled,
         models: models.split(/\r?\n|,/).map((s) => s.trim()).filter(Boolean)
       })
-      .then(() => onDone(edit?.id))
+      // a new provider is selected in the list: it is the one id the overview did not have before
+      .then(() => onDone(edit?.id ?? useChat.getState().overview?.providers.find((p) => !known.has(p.id))?.id))
       .catch((e) => setError(msg(e)))
       .finally(() => setBusy(false))
   }

@@ -14,3 +14,7 @@ Nothing. The last item (VN Studio calling `compose_sfx`) is done in VN Studio as
 ## MDI-07: ACP proxy and custom providers (2026-10-27, branch MDI-07_acp-custom-providers)
 
 Seed provider `acp` (ACP proxy, `http://127.0.0.1:7461/v1`, off until enabled), added once to existing configs by `config/seed-state.json`; Settings > Models has Add provider / Edit / Remove / Enable for OpenAI-compatible providers (`custom: true` in providers.md, key `CUSTOM_<ID>_API_KEY` in the credential store). Same shape as Pixel Studio PAR-14. Not yet checked live against the running proxy. Ticket: `.claude/tickets/MDI-07-acp-custom-providers/`.
+
+## MDI-08: ACP live check through the real app (2026-10-27, branch MDI-08_acp-live-ui-check)
+
+Playwright `_electron` spec `tests/e2e/acp-live.spec.ts` (gated by `ACP_LIVE=1`, proxy on `127.0.0.1:7461`, runs on a copy of `~/ChiptuneStudio/config`): Settings > Models shows `acp` with prefixed ids only, the Add provider form (Test, Detect, Remove) leaves the chat model selector valid, and the agent chat composes a melody on `acp/codex/gpt-5.6-luna` and `acp/antigravity/gemini-3.8-flash`. Fixes found on the way: seed migration inserts `acp` before `mock` with the seed's comments (CRLF-safe); removing a provider resets a chat model that was on it; providers.md writes are serialized; a newly added provider is selected in the list; JSON-action mode gets two repair retries and a line saying its actions are not host tool calls (the proxy's codex sometimes refused or broke the JSON). Ticket: `.claude/tickets/MDI-08-acp-live-ui-check/`.
