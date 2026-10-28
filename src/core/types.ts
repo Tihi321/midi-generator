@@ -9,8 +9,8 @@
 //    `song.patternLength` rows long (a Dxx effect can end a row early).
 //  - A note sounds from its row until the next note, note-off ('off') or release ('rel') on that channel.
 
-export type ChipId = 'nes' | 'gb' | 'genesis' | 'snes' | 'pce'
-export const CHIP_IDS: readonly ChipId[] = ['nes', 'gb', 'genesis', 'snes', 'pce']
+export type ChipId = 'nes' | 'gb' | 'genesis' | 'snes' | 'pce' | 'ps1' | 'dreamcast'
+export const CHIP_IDS: readonly ChipId[] = ['nes', 'gb', 'genesis', 'snes', 'pce', 'ps1', 'dreamcast']
 
 export type PitchClass = 'C' | 'C#' | 'D' | 'D#' | 'E' | 'F' | 'F#' | 'G' | 'G#' | 'A' | 'A#' | 'B'
 
@@ -26,7 +26,7 @@ export type NoteValue = number | 'off' | 'rel'
  *  'G' xx note delay (ticks)  'S' xx note cut after xx ticks              'P' xx fine pitch (80 = centre)
  *  'Q' xy note slide up (x speed, y semitones)                            'R' xy note slide down
  *  'W' xx timbre (pulse duty / wave index / noise mode / FM-unused)       'X' xx pan (00 left, 80 centre, FF right)
- *  'E' xx SNES echo on (01) / off (00) for the channel
+ *  'E' xx echo / effect send on (01) / off (00) for the channel: SNES echo, PS1 reverb, Dreamcast DSP
  */
 export type EffectCode =
   | '0' | '1' | '2' | '3' | '4' | '7' | 'A' | 'B' | 'C' | 'D' | 'F' | 'G' | 'S' | 'P' | 'Q' | 'R' | 'W' | 'X' | 'E'
@@ -131,7 +131,52 @@ export interface SnesConfig {
 export interface PceConfig {
   chip: 'pce'
 }
-export type ChipConfig = NesConfig | GbConfig | GenesisConfig | SnesConfig | PceConfig
+/** PS1 SPU reverb presets (the psx-spx register-set names). */
+export const PS1_REVERB_PRESETS = ['off', 'room', 'studio-small', 'studio-medium', 'studio-large', 'hall', 'half-echo', 'space-echo', 'echo', 'delay'] as const
+export type Ps1ReverbPreset = (typeof PS1_REVERB_PRESETS)[number]
+/** Voices a PS1 song can have (hardware maximum = the largest). */
+export const PS1_VOICE_COUNTS = [16, 24] as const
+export interface Ps1Reverb {
+  preset: Ps1ReverbPreset
+  /** 0..1, the reverb output volume (vLOUT/vROUT). */
+  depth: number
+  /** 0..1, the reverb input volume (vLIN/vRIN). */
+  inputVol: number
+}
+export interface Ps1Config {
+  chip: 'ps1'
+  /** 16 or 24; structural (new_song only). */
+  voices: (typeof PS1_VOICE_COUNTS)[number]
+  reverb: Ps1Reverb
+}
+
+/** Dreamcast AICA DSP effect presets (fixed models; the real microcode is not emulated). */
+export const DC_DSP_PRESETS = ['off', 'room', 'hall', 'plate', 'chorus', 'chorus-hall', 'delay', 'echo', 'chorus-delay'] as const
+export type DcDspPreset = (typeof DC_DSP_PRESETS)[number]
+/** Voices (slots) a Dreamcast song can have (hardware maximum = the largest). */
+export const DC_VOICE_COUNTS = [16, 32, 64] as const
+export interface DcDsp {
+  preset: DcDspPreset
+  /** 0..1 wet level. */
+  mix: number
+  /** 0..1 reverb time / size. */
+  time: number
+  /** 0..0.95 delay feedback. */
+  feedback: number
+  /** 0..1 chorus LFO rate. */
+  chorusRate: number
+  /** 0..1 chorus depth. */
+  chorusDepth: number
+  /** 10..1000 ms delay time. */
+  delayMs: number
+}
+export interface DreamcastConfig {
+  chip: 'dreamcast'
+  /** 16, 32 or 64; structural (new_song only). */
+  voices: (typeof DC_VOICE_COUNTS)[number]
+  dsp: DcDsp
+}
+export type ChipConfig = NesConfig | GbConfig | GenesisConfig | SnesConfig | PceConfig | Ps1Config | DreamcastConfig
 
 // ---------------------------------------------------------------------------------------------
 // Instruments
@@ -183,7 +228,7 @@ export interface InstrumentBase {
 export type InstrumentKind =
   | 'nes-pulse' | 'nes-tri' | 'nes-noise' | 'psg' | 'psg-noise'
   | 'gb-pulse' | 'gb-wave' | 'gb-noise'
-  | 'pce-wave' | 'fm' | 'snes-sample' | 'sample'
+  | 'pce-wave' | 'fm' | 'snes-sample' | 'sample' | 'psx-sample' | 'aica-sample'
 
 export interface MacroInstrument extends InstrumentBase {
   kind: 'nes-pulse' | 'nes-tri' | 'nes-noise' | 'psg' | 'psg-noise'
@@ -253,6 +298,95 @@ export interface SnesSampleInstrument extends InstrumentBase {
   fine?: number
   macros?: Macros
 }
+/** PS1 SPU ADSR register values (psx-spx): rate fields count from 0 = fastest; sustainLevel 0..15 is (n+1)/16 of full level. */
+export interface PsxAdsr {
+  /** Attack rate 0..127 (shift = n>>2, step = n&3). */
+  attack: number
+  /** Exponential attack (slows above 0x6000) instead of linear. */
+  attackExp: boolean
+  /** Decay shift 0..15 (always exponential). */
+  decay: number
+  /** Sustain level 0..15. */
+  sustainLevel: number
+  /** Sustain rate 0..127. */
+  sustainRate: number
+  sustainDir: 'dec' | 'inc'
+  sustainExp: boolean
+  /** Release shift 0..31. */
+  release: number
+  releaseExp: boolean
+}
+/** PS1 SPU voice: a PS-X ADPCM sample with the hardware ADSR, optional pitch modulation and noise. */
+export interface PsxSampleInstrument extends InstrumentBase {
+  kind: 'psx-sample'
+  /** SampleSlot id. */
+  sample: string
+  /** MIDI note at which the sample plays at its native rate. */
+  baseNote: number
+  /** Fine tune in cents. */
+  fine?: number
+  adsr: PsxAdsr
+  /** Send to the SPU reverb (Exx on a cell overrides it). */
+  reverb: boolean
+  /** Pitch modulation by the previous voice's output (not on V1). */
+  pmod?: boolean
+  /** Replace the sample by the global noise generator (shift 0..15, step 0..3). */
+  noise?: { shift: number; step: number }
+  macros?: Macros
+}
+
+/** Dreamcast AICA amplitude envelope (rates 0..31, 31 = fastest) and decay level (0..31, 0 = no decay). */
+export interface AicaAeg {
+  ar: number
+  d1r: number
+  d2r: number
+  rr: number
+  dl: number
+  /** Key rate scaling 0..15. */
+  krs?: number
+}
+/** Dreamcast AICA per-slot resonant low-pass filter and its envelope. */
+export interface AicaFilter {
+  /** Resonance 0..31. */
+  q: number
+  /** Filter levels FLV0..FLV4, 0..8191 (8191 = open). */
+  flv: [number, number, number, number, number]
+  far: number
+  fd1r: number
+  fd2r: number
+  frr: number
+}
+export type AicaLfoWave = 'saw' | 'square' | 'tri' | 'noise'
+export interface AicaLfo {
+  /** LFO frequency 0..31. */
+  freq: number
+  pitchWave: AicaLfoWave
+  /** Pitch (vibrato) depth 0..7. */
+  pitchDepth: number
+  ampWave: AicaLfoWave
+  /** Amplitude (tremolo) depth 0..7. */
+  ampDepth: number
+  /** Restart the LFO on every key-on. */
+  reset: boolean
+}
+/** Dreamcast AICA slot: PCM16, PCM8 or 4-bit ADPCM sample with AEG, optional filter and LFO. */
+export interface AicaSampleInstrument extends InstrumentBase {
+  kind: 'aica-sample'
+  /** SampleSlot id. */
+  sample: string
+  /** MIDI note at which the sample plays at its native rate. */
+  baseNote: number
+  /** Fine tune in cents. */
+  fine?: number
+  format: 'pcm16' | 'pcm8' | 'adpcm'
+  aeg: AicaAeg
+  filter?: AicaFilter
+  lfo?: AicaLfo
+  /** DSP send level 0..15 (Exx on a cell overrides it on/off). */
+  send: number
+  macros?: Macros
+}
+
 /** Raw sample playback: NES DPCM, Genesis F6 DAC, PCE DDA. */
 export interface SampleInstrument extends InstrumentBase {
   kind: 'sample'
@@ -270,6 +404,8 @@ export type Instrument =
   | FmInstrument
   | SnesSampleInstrument
   | SampleInstrument
+  | PsxSampleInstrument
+  | AicaSampleInstrument
 
 /** A sample: either generated from a recipe (regenerated and cached on load) or user PCM. */
 export interface SampleSlot {

@@ -15,9 +15,13 @@
 // every even 4-bar phrase, fitted to the key, range and scale, lightly developed in the later repeats. A variation
 // number k > 0 keeps the harmony and re-rolls the arrangement (lead rhythm and steps, bass pattern, pad voicing and
 // entry, drum fills) with an RNG seeded from (seed, k); k = 0 is the original track.
+// The synth moods (synthwave, outrun, darkwave, dreamwave) branch off before any draw from the main RNG: they have their own
+// style, bass patterns and presets, and on chips with 12+ voices (PS1, Dreamcast) a 16th arp, three pads, a lead double and
+// (outrun) brass stabs, with random choices from a separate RNG. The other moods compose exactly as before.
 
 import {
   type Cell,
+  type ChannelKind,
   type ChannelState,
   type ChipId,
   type Instrument,
@@ -39,6 +43,7 @@ import {
   requireChipId,
   requireMood,
   requireScale,
+  resolvePreset,
   romanToChord,
   scaleNotes,
   songChannelDefs,
@@ -143,8 +148,15 @@ const DEFAULT_CHIP: Record<string, ChipId> = {
   title: 'snes',
   castle: 'genesis',
   shop: 'genesis',
-  chill: 'genesis'
+  chill: 'genesis',
+  synthwave: 'ps1',
+  darkwave: 'ps1',
+  outrun: 'dreamcast',
+  dreamwave: 'dreamcast'
 }
+
+/** Moods that get the synth treatment (own style, presets, arrangement extras and chip effects). */
+const SYNTH_MOODS = new Set(['synthwave', 'outrun', 'darkwave', 'dreamwave'])
 
 export function defaultChipForMood(moodId: string): ChipId {
   return DEFAULT_CHIP[moodId] ?? 'nes'
@@ -157,7 +169,7 @@ interface MoodStyle {
   density: Density
   /** Chord length in bars. */
   chordBars: number
-  bass: 'hold' | 'rock' | 'quarters' | 'eighths'
+  bass: 'hold' | 'rock' | 'quarters' | 'eighths' | 'drive' | 'roll'
   /** Probability that a bar of the lead is silent. */
   restBars: number
   /** Volume scale 0..1 for everything. */
@@ -166,7 +178,17 @@ interface MoodStyle {
   drums: string | null
 }
 
+/** Synth moods: density and bass differ, the drums are the mood's own style. */
+const SYNTH_STYLES: Record<string, Pick<MoodStyle, 'density' | 'chordBars' | 'bass' | 'restBars'>> = {
+  synthwave: { density: 'medium', chordBars: 1, bass: 'drive', restBars: 0.05 },
+  outrun: { density: 'busy', chordBars: 1, bass: 'roll', restBars: 0.04 },
+  darkwave: { density: 'medium', chordBars: 1, bass: 'drive', restBars: 0.12 },
+  dreamwave: { density: 'sparse', chordBars: 2, bass: 'rock', restBars: 0.15 }
+}
+
 function styleFor(mood: MoodRecipe): MoodStyle {
+  const synthStyle = SYNTH_STYLES[mood.id]
+  if (SYNTH_MOODS.has(mood.id) && synthStyle) return { calm: false, ...synthStyle, level: 1, drums: mood.drumStyles[0] ?? null }
   const calm = CALM_MOODS.has(mood.id)
   if (calm) {
     const m: Record<string, Partial<MoodStyle>> = {
@@ -206,6 +228,59 @@ function softPresetRef(chip: ChipId, part: 'lead' | 'pad' | 'pad2' | 'bass', moo
     default:
       return part === 'lead' ? mood.parts.lead : part === 'bass' ? 'bass' : part === 'pad' ? mood.parts.pad : 'strings'
   }
+}
+
+type SynthPart = 'lead' | 'double' | 'pad' | 'pad2' | 'pad3' | 'bass' | 'arp' | 'brass' | DrumRole
+
+/**
+ * Preset for a part of a synth mood. On PS1 and Dreamcast these are the synthwave contract ids (<chip>.lead.saw-detuned, ...);
+ * on the other chips a role (the role presets of the chip).
+ */
+function synthPresetRef(chip: ChipId, part: SynthPart, mood: MoodRecipe): string {
+  if (chip === 'ps1' || chip === 'dreamcast') {
+    const id: Record<SynthPart, string> = {
+      lead: 'lead.saw-detuned',
+      double: 'lead.saw-detuned',
+      pad: 'pad.supersaw',
+      pad2: mood.id === 'dreamwave' ? 'epiano.dx' : 'pad.juno',
+      pad3: mood.id === 'dreamwave' ? 'pad.juno' : 'pad.supersaw',
+      bass: mood.id === 'darkwave' ? 'bass.fm' : 'bass.analog',
+      arp: 'pluck.arp',
+      brass: 'brass.synth-stab',
+      kick: 'kick.linn',
+      snare: 'snare.gated',
+      hihat: 'hat.linn',
+      openhat: 'openhat.linn',
+      tom: 'tom.linn',
+      crash: 'crash.linn',
+      clap: 'clap.linn'
+    }
+    return `${chip}.${id[part]}`
+  }
+  const role: Record<SynthPart, Role> = {
+    lead: mood.parts.lead,
+    double: 'lead',
+    pad: mood.parts.pad,
+    pad2: 'strings',
+    pad3: 'strings',
+    bass: 'bass',
+    arp: mood.parts.harmony,
+    brass: 'brass',
+    kick: 'kick',
+    snare: 'snare',
+    hihat: 'hihat',
+    openhat: 'openhat',
+    tom: 'tom',
+    crash: 'crash',
+    clap: 'clap'
+  }
+  return role[part]
+}
+
+/** The instrument for a part of a synth mood; a missing synthwave preset on PS1 or Dreamcast is an error (no silent fallback). */
+function synthInstrument(chip: ChipId, part: SynthPart, mood: MoodRecipe, kind: ChannelKind): Instrument {
+  const ref = synthPresetRef(chip, part, mood)
+  return chip === 'ps1' || chip === 'dreamcast' ? resolvePreset(chip, ref, kind) : presetFor(chip, ref as Role, kind)
 }
 
 // ---------------------------------------------------------------------------------------------- rhythm
@@ -251,10 +326,13 @@ const RHYTHMS: Record<Density, { normal: Rhythm[]; cadence: Rhythm[] }> = {
   }
 }
 
-const BASS_PATTERNS: Record<'rock' | 'quarters' | 'eighths', { row: number; semis: number }[]> = {
+const BASS_PATTERNS: Record<'rock' | 'quarters' | 'eighths' | 'drive' | 'roll', { row: number; semis: number }[]> = {
   rock: [{ row: 0, semis: 0 }, { row: 8, semis: 7 }],
   quarters: [{ row: 0, semis: 0 }, { row: 4, semis: 0 }, { row: 8, semis: 7 }, { row: 12, semis: 0 }],
-  eighths: [0, 0, 12, 0, 0, 0, 12, 7].map((semis, i) => ({ row: i * 2, semis }))
+  eighths: [0, 0, 12, 0, 0, 0, 12, 7].map((semis, i) => ({ row: i * 2, semis })),
+  // synth moods: straight root eighths with the octave on the last, and rolling sixteenths with octave pops
+  drive: [0, 0, 0, 0, 0, 0, 0, 12].map((semis, i) => ({ row: i * 2, semis })),
+  roll: [0, 0, 12, 0, 0, 0, 12, 0, 0, 0, 12, 0, 0, 0, 12, 0].map((semis, i) => ({ row: i, semis }))
 }
 
 // ---------------------------------------------------------------------------------------------- composing
@@ -299,6 +377,9 @@ interface Plan {
   lead?: number
   pads: number[]
   arp?: number
+  /** Synth moods on chips with 12+ voices: the lead double and (outrun) the brass channel. */
+  double?: number
+  brass?: number
   /** channel index -> drum roles it plays */
   drums: Map<number, DrumRole[]>
 }
@@ -331,7 +412,7 @@ function channelIndex(song: Song, id: string): number {
   return song.channels.findIndex((c) => c.id === id)
 }
 
-function planChannels(song: Song, style: MoodStyle, drumRoles: DrumRole[]): Plan {
+function planChannels(song: Song, style: MoodStyle, drumRoles: DrumRole[], extras: { big: boolean; brass: boolean }): Plan {
   const chip = song.chip
   const table = ROLE_CHANNELS[chip]
   const has = (id: string): boolean => channelIndex(song, id) >= 0
@@ -351,9 +432,14 @@ function planChannels(song: Song, style: MoodStyle, drumRoles: DrumRole[]): Plan
     padIds.push(id)
   }
   // chips with one soft voice for harmony (NES, GB, PCE) keep it to one channel; the rest get two chord voices
-  const pads = padIds.slice(0, padIds.length >= 2 ? 2 : 1).map((id) => take(id)!)
+  // (synth moods on chips with 12+ voices: three)
+  const pads = padIds.slice(0, extras.big && padIds.length >= 3 ? 3 : padIds.length >= 2 ? 2 : 1).map((id) => take(id)!)
   let arp: number | undefined
   if (!style.calm) arp = take((table.arp ?? []).find((id) => has(id) && !taken.has(id)))
+  let double: number | undefined
+  let brass: number | undefined
+  if (extras.big) double = take((table.lead ?? []).find((id) => has(id) && !taken.has(id)))
+  if (extras.brass) brass = take((table.brass ?? []).find((id) => has(id) && !taken.has(id)))
   // drums: each role goes to the first listed channel that has a preset for it
   const drums = new Map<number, DrumRole[]>()
   for (const role of drumRoles) {
@@ -366,7 +452,7 @@ function planChannels(song: Song, style: MoodStyle, drumRoles: DrumRole[]): Plan
       break
     }
   }
-  return { bass, lead, pads, arp, drums }
+  return { bass, lead, pads, arp, double, brass, drums }
 }
 
 function cellVol(def: ChannelDef | undefined, vol: number): number | undefined {
@@ -379,6 +465,7 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   const mood = requireMood(opts.mood)
   const chip = opts.chip ? requireChipId(opts.chip) : defaultChipForMood(mood.id)
   const style = styleFor(mood)
+  const synth = SYNTH_MOODS.has(mood.id)
   const rng = createRng(opts.seed)
 
   const minorPick = opts.scale ? isMinorScale(opts.scale) : undefined
@@ -413,11 +500,22 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     const cfg = song.chipConfig
     if (cfg.chip === 'snes') cfg.echo = { ...cfg.echo, delay: 6, feedback: 0.5, volL: 0.35, volR: 0.35 }
   }
+  if (synth) {
+    // chip effects: PS1 reverb hall (dreamwave space-echo, darkwave studio-large); Dreamcast chorus-hall (outrun chorus-delay, a dotted-8th delay)
+    const cfg = song.chipConfig
+    if (cfg.chip === 'ps1') {
+      cfg.reverb = { ...cfg.reverb, preset: mood.id === 'dreamwave' ? 'space-echo' : mood.id === 'darkwave' ? 'studio-large' : 'hall' }
+    } else if (cfg.chip === 'dreamcast') {
+      const dotted8 = Math.max(10, Math.min(1000, Math.round((60000 / bpm) * 0.75)))
+      cfg.dsp = { ...cfg.dsp, preset: mood.id === 'outrun' ? 'chorus-delay' : 'chorus-hall', delayMs: dotted8 }
+    }
+  }
 
   // ---- channels and instruments
   const drumStyle = style.drums ? findDrumStyle(style.drums) : undefined
   const drumRoles = drumStyle ? DRUM_ROLES.filter((r) => drumStyle.lanes[r] || (!style.calm && drumStyle.fill?.[r])) : []
-  const plan = planChannels(song, style, drumRoles)
+  const synthBig = synth && song.channels.length >= 12 // PS1 and Dreamcast: voices to spare for the extras
+  const plan = planChannels(song, style, drumRoles, { big: synthBig, brass: synthBig && mood.id === 'outrun' })
   const defs = songChannelDefs(song)
   const motifPc = normalizePitchClass(opts.motifKey ?? 'C')
   if (!motifPc) throw new Error(`Invalid motifKey "${opts.motifKey}": use a note name such as C, F#, Bb.`)
@@ -439,10 +537,11 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     } else inst = wanted()
     return addSongInstrument(song, inst)
   }
-  const soft = (part: 'lead' | 'pad' | 'pad2' | 'bass', chIdx: number, fallbackRole: Role): Instrument => {
+  const soft = (part: 'lead' | 'pad' | 'pad2' | 'pad3' | 'bass', chIdx: number, fallbackRole: Role): Instrument => {
     const kind = song.channels[chIdx]!.kind
+    if (synth) return synthInstrument(chip, part, mood, kind)
     if (style.calm) {
-      const ref = softPresetRef(chip, part, mood)
+      const ref = softPresetRef(chip, part === 'pad3' ? 'pad2' : part, mood)
       const inst = tryResolvePreset(chip, ref, kind)
       if (inst) return inst
     }
@@ -487,6 +586,8 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   // below come from an RNG of (seed, variation) (none are made for variation 0)
   const varMix = variation > 0 ? Math.imul(variation, 0x85ebca6b) : 0
   const vr: Rng | null = variation > 0 ? createRng((opts.seed ^ 0x9e3779b9 ^ 0x56 ^ varMix) >>> 0) : null
+  // new randomness of the synth moods never touches the main RNG
+  const synthRng: Rng | null = synth ? createRng((opts.seed ^ 0x9e3779b9 ^ 0x5357 ^ varMix) >>> 0) : null
   let bassMode: MoodStyle['bass'] = style.bass
   let padEntry = 4
   let padSwap = false
@@ -527,7 +628,7 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   // ---- pads
   const padInsts: number[] = []
   plan.pads.forEach((ch, k) => {
-    const inst = instFor(ch, () => soft(k === 0 ? 'pad' : 'pad2', ch, k === 0 ? mood.parts.pad : 'strings'))
+    const inst = instFor(ch, () => soft(k === 0 ? 'pad' : k === 1 ? 'pad2' : 'pad3', ch, k === 0 ? mood.parts.pad : 'strings'))
     padInsts.push(inst)
     parts.push(`${song.channels[ch]!.id} pad: ${song.instruments[inst]!.name}`)
   })
@@ -538,11 +639,20 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     const semis = voice === 0 ? iv[1]! : iv.length >= 4 ? iv[iv.length - 1]! : iv[2] ?? iv[1]!
     return nearPitch((chord.root + semis) % 12, k === 0 ? 62 : 68)
   }
+  // synth moods with three chord voices: root, third and the fifth (the seventh instead when the chord has one), close together
+  const threePads = plan.pads.length >= 3
+  const synthPadPitch = (k: number, chord: ReturnType<typeof romanToChord>): number => {
+    const iv = chord.intervals
+    const semis = k === 0 ? 0 : k === 1 ? iv[1]! : iv.length >= 4 ? iv[iv.length - 1]! : iv[2] ?? iv[1]!
+    return nearPitch((chord.root + semis) % 12, [55, 62, 67][k]!)
+  }
+  // synthwave and outrun: the pads enter two rows after the beat, just behind the kick (a sidechain feel)
+  const synthPadRow = mood.id === 'synthwave' || mood.id === 'outrun' ? 2 : 0
   for (let bar = 0; bar < introBars; bar++) {
     if (bar !== 0 && bar !== introBars - 1) continue
     const chord = introChord(bar)
     plan.pads.forEach((ch, k) => {
-      const pitch = plan.pads.length >= 2 ? padPitch(k, chord) : nearPitch(chord.root, 60)
+      const pitch = threePads ? synthPadPitch(k, chord) : plan.pads.length >= 2 ? padPitch(k, chord) : nearPitch(chord.root, 60)
       putIntro(ch, bar, noteCell(ch, pitch, padInsts[k]!, 5))
     })
   }
@@ -551,6 +661,10 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
       const inst = padInsts[k]!
       for (let bar = 0; bar < bars; bar += style.chordBars) {
         const chord = chordAt(bar)
+        if (threePads) {
+          put(ch, bar * ROWS_PER_BAR + synthPadRow, noteCell(ch, synthPadPitch(k, chord), inst, k === 0 ? 8 : 7))
+          continue
+        }
         // the second pad enters one beat late: the two attacks do not dip together
         put(ch, bar * ROWS_PER_BAR + (k === 0 ? 0 : padEntry), noteCell(ch, padPitch(k, chord), inst, 8))
       }
@@ -576,12 +690,27 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   // ---- arp (lively moods, on a free arpeggio voice)
   if (plan.arp !== undefined) {
     const ch = plan.arp
-    const inst = instFor(ch, () => presetFor(chip, mood.parts.harmony, song.channels[ch]!.kind))
+    const inst = instFor(ch, () => (synth ? synthInstrument(chip, 'arp', mood, song.channels[ch]!.kind) : presetFor(chip, mood.parts.harmony, song.channels[ch]!.kind)))
     parts.push(`${song.channels[ch]!.id} arp: ${song.instruments[inst]!.name}`)
     const order = [0, 1, 2, 1]
+    let arpUpDown = false
     for (let bar = 0; bar < bars; bar++) {
       const chord = chordAt(bar)
       const tones = chord.intervals
+      if (synthBig) {
+        // sixteenth notes over two octaves of chord tones, going up or up and down (one pick per 4-bar phrase, from the synth RNG)
+        if (bar % 4 === 0) arpUpDown = chance(synthRng!, 0.5)
+        const ladder = tones.length * 2
+        const period = arpUpDown ? ladder * 2 - 2 : ladder
+        const low = 52 + ((((chord.root - 52) % 12) + 12) % 12)
+        for (let r = 0; r < ROWS_PER_BAR; r++) {
+          const p = r % period
+          const j = arpUpDown && p >= ladder ? period - p : p
+          const note = low + tones[j % tones.length]! + 12 * Math.floor(j / tones.length)
+          put(ch, bar * ROWS_PER_BAR + r, noteCell(ch, note, inst, r % 4 === 0 ? 7 : 5))
+        }
+        continue
+      }
       for (let r = 0; r < ROWS_PER_BAR; r += 2) {
         const t = tones[order[(r / 2) % order.length]! % tones.length]!
         put(ch, bar * ROWS_PER_BAR + r, noteCell(ch, nearPitch((chord.root + t) % 12, 67), inst, 6))
@@ -730,6 +859,38 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     if (range.length > 0) writeLead(range, lo, hi)
   }
 
+  // ---- lead double (synth moods on PS1 and Dreamcast): the lead an octave down, softer, two ticks late (a chorus-style double)
+  if (plan.double !== undefined && plan.lead !== undefined) {
+    const ch = plan.double
+    const inst = instFor(ch, () => synthInstrument(chip, 'double', mood, song.channels[ch]!.kind))
+    parts.push(`${song.channels[ch]!.id} lead double: ${song.instruments[inst]!.name}`)
+    const fx = [{ code: 'G' as const, param: 2 }]
+    const src = linear[plan.lead]!
+    for (let r = off; r < src.length; r++) {
+      const c = src[r]
+      if (!c) continue
+      linear[ch]![r] = typeof c.note === 'number' ? noteCell(ch, c.note - 12, inst, Math.max(1, (c.vol ?? 10) - 3), fx) : { note: c.note, fx }
+    }
+  }
+
+  // ---- brass stabs (outrun on PS1 and Dreamcast): a short stab on every chord change and a push into the next chord every 4th bar
+  if (plan.brass !== undefined) {
+    const ch = plan.brass
+    const inst = instFor(ch, () => synthInstrument(chip, 'brass', mood, song.channels[ch]!.kind))
+    parts.push(`${song.channels[ch]!.id} brass: ${song.instruments[inst]!.name}`)
+    for (let bar = 0; bar < bars; bar++) {
+      if (bar % style.chordBars === 0) {
+        const c = chordAt(bar)
+        put(ch, bar * ROWS_PER_BAR, noteCell(ch, nearPitch((c.root + c.intervals[1]!) % 12, 67), inst, 10))
+        put(ch, bar * ROWS_PER_BAR + 3, { note: 'rel' })
+      }
+      if (bar % 4 === 3) {
+        const next = chordAt(bar + 1 < bars ? bar + 1 : 0)
+        put(ch, bar * ROWS_PER_BAR + 14, noteCell(ch, nearPitch(next.root, 64), inst, 8))
+      }
+    }
+  }
+
   // ---- drums
   if (drumStyle) {
     const volByRole: Record<DrumRole, number> = { kick: 12, snare: 10, hihat: 6, openhat: 6, crash: 8, tom: 9, clap: 9 }
@@ -739,7 +900,7 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
       for (const role of roles) {
         const override = opts.instruments?.[song.channels[ch]!.id]
         const found = override && roles.length === 1 ? tryResolvePreset(chip, override, kind) : undefined
-        insts.set(role, addSongInstrument(song, found ?? presetFor(chip, role, kind)))
+        insts.set(role, addSongInstrument(song, found ?? (synth ? synthInstrument(chip, role, mood, kind) : presetFor(chip, role, kind))))
       }
       parts.push(`${song.channels[ch]!.id} drums: ${roles.join('+')}`)
       for (let bar = 0; bar < bars; bar++) {
@@ -747,6 +908,7 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
         for (let step = 0; step < 16; step++) {
           const hit = DRUM_PRIORITY.find((role) => {
             if (!roles.includes(role)) return false
+            if (synth && role === 'crash' && bar % 4 !== 0) return false // the crash marks the first bar of a phrase only
             const base = drumStyle.lanes[role]
             const fill = drumStyle.fill?.[role]
             const lane = isFill && drumStyle.fill ? (fill ?? (role === 'snare' || role === 'tom' ? undefined : base)) : base

@@ -44,7 +44,7 @@ export const PROGRESSIONS: Progression[] = [
   P('desert-flat2', 'Phrygian major (I-bII-I-bII)', 'major', 'I bII I bII', ['desert'], 'Exotic flat-2 vamp; use with phrygian-dominant.'),
   P('desert-bass', 'Desert (I-bII-bVII-I)', 'major', 'I bII bVII I', ['desert'], 'Flat-2 tension resolved back home.'),
   // ---- minor
-  P('epic-minor', 'Epic minor (i-bVI-bIII-bVII)', 'minor', 'i bVI bIII bVII', ['heroic', 'battle', 'overworld', 'castle'], 'The big cinematic loop.'),
+  P('epic-minor', 'Epic minor (i-bVI-bIII-bVII)', 'minor', 'i bVI bIII bVII', ['heroic', 'battle', 'overworld', 'castle', 'synthwave', 'outrun'], 'The big cinematic loop (the canonical synthwave one).'),
   P('andalusian', 'Andalusian (i-bVII-bVI-V)', 'minor', 'i bVII bVI V', ['battle', 'boss', 'castle', 'desert'], 'Descending tragic line ending on the dominant.'),
   P('dungeon-walk', 'Dungeon walk (i-iv-v-i)', 'minor', 'i iv v i', ['dungeon', 'sad'], 'Natural-minor plod; patient and ominous.'),
   P('adventure-minor', 'Adventure (i-iv-bVII-bIII)', 'minor', 'i iv bVII bIII', ['overworld', 'heroic'], 'Minor with lift.'),
@@ -65,7 +65,7 @@ export const PROGRESSIONS: Progression[] = [
   P('desert-minor', 'Desert (i-bII-V-i)', 'minor', 'i bII V i', ['desert', 'battle'], 'Flat-2 and dominant: exotic (phrygian-dominant).'),
   P('sad-turn', 'Sad turn (i-bIII-iv-i)', 'minor', 'i bIII iv i', ['sad', 'game-over'], 'Gentle fall to the subdominant, then home.'),
   P('epic-climb', 'Epic climb (bVI-bVII-i-i)', 'minor', 'bVI bVII i i', ['heroic', 'battle', 'boss'], 'Rises into the tonic like a cadence.'),
-  P('underwater-minor', 'Drift (i-bVII-bVI-bVII)', 'minor', 'i bVII bVI bVII', ['underwater', 'dungeon', 'chill'], 'Slow oscillation between neighbours; hypnotic.'),
+  P('underwater-minor', 'Drift (i-bVII-bVI-bVII)', 'minor', 'i bVII bVI bVII', ['underwater', 'dungeon', 'chill', 'darkwave', 'dreamwave'], 'Slow oscillation between neighbours; hypnotic.'),
   P('spooky-dim', 'Diminished creep (i-iio-i-iio)', 'minor', 'i ii° i ii°', ['spooky', 'dungeon'], 'Chromatic dread.'),
   // ---- calm (slow harmonic rhythm: the composer plays each chord for two bars)
   P('calm-float', 'Float (Imaj7-IVmaj7-vi7-IVmaj7)', 'major', 'Imaj7 IVmaj7 vi7 IVmaj7', ['ambient', 'peaceful', 'lullaby'], 'Soft major sevenths drifting between I, IV and vi.'),
@@ -76,7 +76,12 @@ export const PROGRESSIONS: Progression[] = [
   P('calm-sus', 'Suspended calm (Isus2-IVsus2-Isus2-Vsus4)', 'major', 'Isus2 IVsus2 Isus2 Vsus4', ['ambient', 'mysterious-calm', 'peaceful'], 'No thirds: open fifths and seconds, very still.'),
   P('calm-hush', 'Hush (i7-bVII-bVI-bVII)', 'minor', 'i7 bVII bVI bVII', ['ambient', 'mysterious-calm'], 'Slow oscillation in the minor; soft, not sad.'),
   P('calm-curious', 'Curious (i-bIII-IV-i)', 'minor', 'i bIII IV i', ['mysterious-calm', 'ambient'], 'The major IV over minor (dorian) lifts the mood a little.'),
-  P('calm-veil', 'Veil (i-bVII-i-bII)', 'minor', 'i bVII i bII', ['mysterious-calm'], 'Quiet doubt with a soft flat-2 glance.')
+  P('calm-veil', 'Veil (i-bVII-i-bII)', 'minor', 'i bVII i bII', ['mysterious-calm'], 'Quiet doubt with a soft flat-2 glance.'),
+  // ---- synth moods (MDI-10; the canonical synthwave i-bVI-bIII-bVII is epic-minor above)
+  P('synth-drive', 'Night drive (i-bVII-bVI-bVII)', 'minor', 'i bVII bVI bVII', ['synthwave', 'outrun'], 'Hypnotic back-and-forth that keeps rolling; the outrun staple.'),
+  P('synth-rise', 'Rise (bVI-bVII-i-i)', 'minor', 'bVI bVII i i', ['synthwave', 'outrun', 'dreamwave'], 'Lifts into the tonic like a sunrise on the horizon.'),
+  P('dark-pulse', 'Dark pulse (i-bII-bVI-bVII)', 'minor', 'i bII bVI bVII', ['darkwave'], 'Flat-2 chill, then the big climb back home.'),
+  P('dream-float', 'Dream float (i7-bVImaj7-bIIImaj7-bVII)', 'minor', 'i7 bVImaj7 bIIImaj7 bVII', ['dreamwave'], 'Sevenths and maj7s floating on a minor root: hazy, nostalgic.')
 ]
 
 export function findProgression(id: string): Progression | undefined {

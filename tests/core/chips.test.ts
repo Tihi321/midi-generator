@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  ARAM_BYTES, CHIP_PROFILES, chipChannels, defaultChipConfig, formatIssues, getChipProfile, listChips, requireChipId, snesAramUsage,
-  validateCellsFor, validateSong
+  ARAM_BYTES, CHIP_PROFILES, chipChannels, defaultChipConfig, defaultPs1Config, defineProfile, formatIssues, getChipProfile, listChips, ps1Channels,
+  requireChipId, snesAramUsage, validateCellsFor, validateSong
 } from '../../src/core/chips'
 import { createSong, getPattern } from '../../src/core/model'
 import { CHIP_IDS } from '../../src/core/types'
@@ -13,7 +13,7 @@ function put(song: Song, channel: string, row: number, cell: object, pattern = 0
 }
 
 describe('chip registry', () => {
-  it('lists all five chips with channel data for the LLM', () => {
+  it('lists all seven chips with channel data for the LLM', () => {
     const chips = listChips()
     expect(chips.map((c) => c.id)).toEqual([...CHIP_IDS])
     for (const c of chips) {
@@ -22,13 +22,16 @@ describe('chip registry', () => {
       expect(c.era).toBeTruthy()
     }
     expect(chips.find((c) => c.id === 'genesis')!.channels).toHaveLength(10)
+    expect(chips.map((c) => c.id).slice(-2)).toEqual(['ps1', 'dreamcast'])
   })
   it('defaultChipConfig matches the chip and requireChipId accepts aliases', () => {
     for (const id of CHIP_IDS) expect(defaultChipConfig(id).chip).toBe(id)
     expect(requireChipId('Game Boy')).toBe('gb')
     expect(requireChipId('mega drive')).toBe('genesis')
     expect(requireChipId('PC Engine')).toBe('pce')
-    expect(() => requireChipId('c64')).toThrow(/Valid chips/)
+    for (const a of ['psx', 'PlayStation', 'play station', 'playstation1', 'SPU', 'ps1']) expect(requireChipId(a), a).toBe('ps1')
+    for (const a of ['dc', 'AICA', 'Sega Dreamcast', 'segadreamcast', 'dreamcast']) expect(requireChipId(a), a).toBe('dreamcast')
+    expect(() => requireChipId('c64')).toThrow(/Valid chips: nes, gb, genesis, snes, pce, ps1, dreamcast/)
     expect(() => getChipProfile('zx' as never)).toThrow(/Unknown chip/)
   })
   it('channel definitions are consistent', () => {
@@ -294,6 +297,71 @@ describe('SNES rules', () => {
     const song = createSong({ chip: 'snes' })
     song.instruments.push({ name: 'x', kind: 'nes-pulse', macros: {} })
     expect(validateSong(song).some((i) => i.message.includes('SNES cannot play'))).toBe(true)
+  })
+})
+
+describe('PS1 and Dreamcast profiles', () => {
+  const ids = (n: number): string[] => Array.from({ length: n }, (_, i) => `V${i + 1}`)
+  it('have V1..Vn sample channels for every allowed voice count', () => {
+    for (const [chip, counts] of [['ps1', [16, 24]], ['dreamcast', [16, 32, 64]]] as const) {
+      expect(chipChannels(chip).map((d) => d.id)).toEqual(ids(16))
+      for (const voices of counts) {
+        const song = createSong({ chip, chipConfig: { voices } as never })
+        expect(song.channels.map((c) => c.id)).toEqual(ids(voices))
+        expect(chipChannels(chip, song.chipConfig).map((d) => d.id)).toEqual(ids(voices))
+        for (const d of chipChannels(chip, song.chipConfig)) {
+          expect(d).toMatchObject({ kind: 'sample', pan: 'full', hasVolume: true, noteMin: 12, noteMax: 119 })
+          expect(d.instKinds).toEqual([chip === 'ps1' ? 'psx-sample' : 'aica-sample'])
+          expect(d.effects).toEqual(chipChannels('snes')[0]!.effects)
+        }
+      }
+    }
+  })
+  it('refuse a voice count the chip does not have', () => {
+    expect(() => chipChannels('ps1', { ...defaultPs1Config(), voices: 20 as never })).toThrow('PS1 voices must be 16 or 24 (got 20)')
+    expect(() => chipChannels('dreamcast', { ...defaultChipConfig('dreamcast'), voices: 48 } as never)).toThrow(/Dreamcast voices must be 16, 32 or 64/)
+    expect(() => createSong({ chip: 'ps1', chipConfig: { voices: '24' } as never })).toThrow(/voices must be/)
+  })
+  it('list_chips describes both chips', () => {
+    const ps1 = listChips().find((c) => c.id === 'ps1')!
+    expect(ps1.channels).toHaveLength(16)
+    expect(ps1.channels[0]!.accepts).toEqual(['psx-sample'])
+    expect(ps1.notes.join(' ')).toMatch(/512 KB/)
+    const dc = listChips().find((c) => c.id === 'dreamcast')!
+    expect(dc.channels[0]!.accepts).toEqual(['aica-sample'])
+    expect(dc.notes.join(' ')).toMatch(/2 MB/)
+  })
+  it('report a bad reverb or DSP config', () => {
+    const ps1 = createSong({ chip: 'ps1' })
+    ;(ps1.chipConfig as { reverb: { preset: string; depth: number } }).reverb = { preset: 'cathedral', depth: 2 }
+    const msgs = validateSong(ps1).map((i) => i.message)
+    expect(msgs.some((m) => m.includes('reverb.preset') && m.includes('studio-large'))).toBe(true)
+    expect(msgs.some((m) => m.includes('reverb.depth'))).toBe(true)
+    const dc = createSong({ chip: 'dreamcast' })
+    ;(dc.chipConfig as { dsp: { preset: string; feedback: number } }).dsp = { ...(dc.chipConfig as { dsp: object }).dsp, preset: 'cave', feedback: 1.5 } as never
+    const d = validateSong(dc).map((i) => i.message)
+    expect(d.some((m) => m.includes('dsp.preset') && m.includes('chorus-hall'))).toBe(true)
+    expect(d.some((m) => m.includes('dsp.feedback'))).toBe(true)
+  })
+  it('only their own sample kind is allowed and a missing sample is reported', () => {
+    const song = createSong({ chip: 'ps1' })
+    song.instruments.push({ name: 'x', kind: 'snes-sample', sample: 's', baseNote: 60, env: { adsr: [15, 7, 7, 0] }, echo: false })
+    expect(validateSong(song).some((i) => i.message.includes('PS1 cannot play'))).toBe(true)
+    const dc = createSong({ chip: 'dreamcast' })
+    dc.instruments.push({ name: 'a', kind: 'aica-sample', sample: 'nope', baseNote: 60, format: 'pcm16', aeg: { ar: 31, d1r: 0, d2r: 0, rr: 20, dl: 0 }, send: 0 })
+    expect(validateSong(dc).some((i) => i.message.includes('missing sample "nope"'))).toBe(true)
+  })
+  it('a chip can add its own instrument-on-channel rule', () => {
+    const profile = defineProfile({
+      id: 'ps1', label: 'PS1', name: 'T', era: '', description: '', notes: [],
+      channels: ps1Channels, defaultConfig: defaultPs1Config,
+      instrumentOnChannel: (_song, def, inst, index) => (def.id === 'V1' ? [`@${index} ${inst.name} cannot go on V1`] : [])
+    })
+    const song = createSong({ chip: 'ps1' })
+    song.instruments.push({ name: 'p', kind: 'psx-sample', sample: 's', baseNote: 60, adsr: { attack: 0, attackExp: false, decay: 0, sustainLevel: 15, sustainRate: 0, sustainDir: 'dec', sustainExp: false, release: 0, releaseExp: false }, reverb: false })
+    const issues = validateCellsFor(profile, song, [{ channel: 'V1', cell: { note: 60, inst: 0 } }, { channel: 'V2', cell: { note: 60, inst: 0 } }])
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toMatchObject({ severity: 'error', channel: 'V1', field: 'inst', message: '@0 p cannot go on V1' })
   })
 })
 

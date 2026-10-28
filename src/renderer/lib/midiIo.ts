@@ -14,6 +14,7 @@ import {
 } from '../../core'
 import type { ArpMode, MidiExport } from '../../core'
 import { type ExportFile, sanitizeBaseName } from './exporter'
+import { defaultVoices, voicesConfig } from './newSong'
 
 // ---------------------------------------------------------------- export
 
@@ -73,6 +74,8 @@ export interface ImportSettings {
   /** Chip options, e.g. NES DPCM channel, Genesis DAC. */
   dpcm: boolean
   fm6Dac: boolean
+  /** Voice count on the chips that have the choice (PS1, Dreamcast); undefined = the chip's default. */
+  voices?: number
 }
 
 export const GRID_CHOICES = [2, 3, 4, 6, 8]
@@ -82,10 +85,10 @@ export function defaultImportSettings(chip: ChipId, name = ''): ImportSettings {
   return { chip, rowsPerBeat: 0, patternLength: 0, maxChannels: 0, foldChords: true, name, dpcm: false, fm6Dac: false }
 }
 
-export function chipConfigFor(chip: ChipId, s: { dpcm: boolean; fm6Dac: boolean }): Partial<ChipConfig> {
+export function chipConfigFor(chip: ChipId, s: { dpcm: boolean; fm6Dac: boolean; voices?: number }): Partial<ChipConfig> {
   if (chip === 'nes' && s.dpcm) return { chip: 'nes', dpcm: true }
   if (chip === 'genesis' && s.fm6Dac) return { chip: 'genesis', fm6Dac: true }
-  return {}
+  return voicesConfig(chip, s.voices)
 }
 
 export type ImportOutcome = { ok: true; song: Song; report: string[] } | { ok: false; error: string }
@@ -125,6 +128,14 @@ export interface ConvertSettings {
   chip: ChipId
   dpcm: boolean
   fm6Dac: boolean
+  /** Voice count on the chips that have the choice (PS1, Dreamcast); undefined = the chip's default. */
+  voices?: number
+}
+
+/** Voice count the dialog starts with for a target chip: the song's own when it is already that chip, else the default. */
+export function convertVoices(song: Song, chip: ChipId): number | undefined {
+  if (chip === song.chip && 'voices' in song.chipConfig) return song.chipConfig.voices
+  return defaultVoices(chip) || undefined
 }
 
 export interface ConvertChoice {
@@ -147,7 +158,9 @@ export type ConvertOutcome = { ok: true; song: Song; report: string[]; noop: boo
 
 export function runConvert(song: Song, s: ConvertSettings): ConvertOutcome {
   try {
-    const cfg = chipConfigFor(s.chip, s)
+    let cfg = chipConfigFor(s.chip, s)
+    // the same chip with another voice count keeps its other settings (reverb / DSP)
+    if (s.chip === song.chip && 'voices' in cfg) cfg = { ...song.chipConfig, ...cfg } as Partial<ChipConfig>
     const r = convertChip(song, s.chip, Object.keys(cfg).length > 0 ? { chipConfig: cfg } : {})
     return { ok: true, song: r.song, report: r.report, noop: r.report[0]?.includes('nothing to convert') ?? false }
   } catch (e) {

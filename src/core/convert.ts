@@ -29,6 +29,12 @@ export interface ConvertResult {
 const DRUM_ROLES = new Set<Role>(['kick', 'snare', 'hihat', 'openhat', 'crash', 'tom', 'clap'])
 const FLOW: EffectCode[] = ['B', 'C', 'D', 'F']
 const NOISE_KINDS = new Set<ChannelKind>(['noise', 'psg-noise'])
+const MAX_DROP_LINES = 10
+
+/** "V13, V14, V15 ... V64": the first few ids and the last one, so a 64-voice list stays one short line. */
+function listIds(ids: string[], max = 8): string {
+  return ids.length <= max ? ids.join(', ') : `${ids.slice(0, max - 1).join(', ')} ... ${ids[ids.length - 1]}`
+}
 
 interface SrcInfo {
   ci: number
@@ -348,7 +354,7 @@ export function convertChip(song: Song, target: ChipId, opts: ConvertOptions = {
         for (const l of cands.slice(1)) lost.set(`${l[0]} on ${id}`, (lost.get(`${l[0]} on ${id}`) ?? 0) + 1)
       }
     }
-    report.push(`Drums: ${placed} hit(s) from ${srcIds.join(' + ')} placed on ${ids.join(' + ')} by role (${[...roleTotals].map(([r, c]) => `${r} x${c}`).join(', ')}); drum notes use the ${target.toUpperCase()} convention.`)
+    report.push(`Drums: ${placed} hit(s) from ${srcIds.length > 6 ? `${srcIds.length} channels (${listIds(srcIds, 5)})` : srcIds.join(' + ')} placed on ${ids.join(' + ')} by role (${[...roleTotals].map(([r, c]) => `${r} x${c}`).join(', ')}); drum notes use the ${target.toUpperCase()} convention.`)
     if (lost.size > 0) report.push(`Dropped ${[...lost.values()].reduce((a, b) => a + b, 0)} simultaneous drum hit(s) that did not fit one note per channel: ${[...lost].map(([k, c]) => `${k} x${c}`).join(', ')}.`)
     for (const id of ids) {
       for (const info of drumSources) {
@@ -359,8 +365,15 @@ export function convertChip(song: Song, target: ChipId, opts: ConvertOptions = {
   }
 
   // ---- dropped channels, flow effects of unmapped channels
-  for (const d of dropped) {
+  // a 24/64-voice song going to a 4-channel chip drops dozens of channels: one line each for the first 10, then a summary
+  for (const d of dropped.slice(0, MAX_DROP_LINES)) {
     report.push(`Dropped ${song.channels[d.ci]!.id} (${d.notes} notes, mean ${noteName(Math.round(meanOf(d)))}): ${target.toUpperCase()} has no free melodic channel for it.`)
+  }
+  if (dropped.length > MAX_DROP_LINES) {
+    const rest = dropped.slice(MAX_DROP_LINES)
+    report.push(
+      `Dropped ${rest.length} more channel(s) (${rest.reduce((n, d) => n + d.notes, 0)} notes in total, the least important ones): ${listIds(rest.map((d) => d.ci).sort((a, b) => a - b).map((ci) => song.channels[ci]!.id))}; ${target.toUpperCase()} has no free melodic channel for them.`
+    )
   }
   const mappedSources = new Set<number>([...assigned.keys(), ...drumSources.map((i) => i.ci)])
   const hostId = [...assigned.values(), ...(hasDrums ? [slots.drumHigh] : [])][0] ?? out.channels[0]!.id

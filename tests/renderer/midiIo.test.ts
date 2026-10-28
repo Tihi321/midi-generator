@@ -69,7 +69,7 @@ describe('midiIo', () => {
   it('lists the convert targets and converts', () => {
     const s = song()
     const choices = convertChoices(s)
-    expect(choices.map((c) => c.id)).toEqual(['nes', 'gb', 'genesis', 'snes', 'pce'])
+    expect(choices.map((c) => c.id)).toEqual(['nes', 'gb', 'genesis', 'snes', 'pce', 'ps1', 'dreamcast'])
     expect(choices.find((c) => c.current)!.id).toBe('nes')
     expect(defaultConvertTarget(s)).toBe('gb')
     const r = runConvert(s, { chip: 'genesis', dpcm: false, fm6Dac: true })

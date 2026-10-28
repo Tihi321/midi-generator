@@ -174,6 +174,8 @@ export interface AdditiveSpec {
   introNoise?: number
   /** Periodic breath noise inside the loop, 0..1. */
   breath?: number
+  /** Rate (Hz) the native rate is chosen near: 32000 for the SNES (default), 44100 for the PS1 and Dreamcast. */
+  targetRate?: number
   seed: number
 }
 
@@ -182,7 +184,7 @@ export function additiveLoop(spec: AdditiveSpec): RawSample {
   const L = roundUp16(spec.loopLen)
   const I = spec.intro ? roundUp16(spec.intro) : 0
   const baseHz = midiToHz(spec.note)
-  const m = Math.max(1, Math.round((baseHz * L) / 32000))
+  const m = Math.max(1, Math.round((baseHz * L) / (spec.targetRate ?? 32000)))
   const rate = (baseHz * L) / m
   const hMax = Math.max(1, Math.min(48, Math.floor((0.46 * rate) / baseHz)))
   const rng = new Rng(spec.seed)

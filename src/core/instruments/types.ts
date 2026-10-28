@@ -17,15 +17,21 @@ export type {
   MacroName,
   Macros,
   PceWaveInstrument,
+  PsxAdsr,
+  PsxSampleInstrument,
   Role,
   SampleInstrument,
   SnesEnvelope,
-  SnesSampleInstrument
+  SnesSampleInstrument,
+  AicaAeg,
+  AicaFilter,
+  AicaLfo,
+  AicaSampleInstrument
 } from '../types'
 
 export const INSTRUMENT_KINDS: readonly InstrumentKind[] = [
   'nes-pulse', 'nes-tri', 'nes-noise', 'psg', 'psg-noise', 'gb-pulse', 'gb-wave', 'gb-noise',
-  'pce-wave', 'fm', 'snes-sample', 'sample'
+  'pce-wave', 'fm', 'snes-sample', 'sample', 'psx-sample', 'aica-sample'
 ]
 
 /** Instrument kinds each chip can host at all (before looking at individual channels). */
@@ -34,7 +40,14 @@ export const KINDS_BY_CHIP: Record<ChipId, readonly InstrumentKind[]> = {
   gb: ['gb-pulse', 'gb-wave', 'gb-noise'],
   genesis: ['fm', 'psg', 'psg-noise', 'sample'],
   snes: ['snes-sample'],
-  pce: ['pce-wave', 'sample']
+  pce: ['pce-wave', 'sample'],
+  ps1: ['psx-sample'],
+  dreamcast: ['aica-sample']
+}
+
+/** The sample slot id an instrument plays (snes-sample, sample, psx-sample, aica-sample), or undefined for other kinds. */
+export function instSampleId(inst: Instrument): string | undefined {
+  return 'sample' in inst && typeof inst.sample === 'string' ? inst.sample : undefined
 }
 
 export function kindsForChip(chip: ChipId): readonly InstrumentKind[] {

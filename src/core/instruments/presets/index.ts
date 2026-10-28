@@ -3,12 +3,14 @@
 import type { ChannelKind, ChipId, Instrument, Role, SampleSlot } from '../../types'
 import { ROLES } from '../../types'
 import { ROLE_FALLBACKS, gmHint, parseRole } from '../roles'
-import { instrumentSlug } from '../types'
+import { instSampleId, instrumentSlug } from '../types'
 import { NES_PRESETS } from './nes'
 import { GB_PRESETS } from './gb'
 import { GENESIS_PRESETS } from './genesis'
 import { SNES_PRESETS } from './snes'
 import { PCE_PRESETS } from './pce'
+import { PS1_PRESETS } from './ps1'
+import { DREAMCAST_PRESETS } from './dreamcast'
 import { GENESIS_SAMPLE_PRESETS, NES_SAMPLE_PRESETS } from './samples'
 import type { Preset } from './types'
 
@@ -19,6 +21,8 @@ export { GB_PRESETS, GB_WAVES } from './gb'
 export { GENESIS_PRESETS } from './genesis'
 export { SNES_PRESETS } from './snes'
 export { PCE_PRESETS, PCE_WAVES } from './pce'
+export { PS1_PRESETS, psxAttackSeconds, psxDecayTauSec, psxReleaseTauSec, psxSustainTauSec, snesToPsxAdsr } from './ps1'
+export { DREAMCAST_PRESETS, aicaAttackSeconds, aicaFallSeconds, snesToAicaAeg } from './dreamcast'
 export { GENESIS_SAMPLE_PRESETS, NES_SAMPLE_PRESETS } from './samples'
 
 export const PRESET_BANKS: Record<ChipId, Preset[]> = {
@@ -26,7 +30,9 @@ export const PRESET_BANKS: Record<ChipId, Preset[]> = {
   gb: GB_PRESETS,
   genesis: [...GENESIS_PRESETS, ...GENESIS_SAMPLE_PRESETS],
   snes: SNES_PRESETS,
-  pce: PCE_PRESETS
+  pce: PCE_PRESETS,
+  ps1: PS1_PRESETS,
+  dreamcast: DREAMCAST_PRESETS
 }
 
 export function listPresets(chip: ChipId, filter: { role?: Role; channelKind?: ChannelKind } = {}): Preset[] {
@@ -95,12 +101,13 @@ export function tryResolvePreset(chip: ChipId, ref: string, channelKind?: Channe
  * already exists: the instrument then points at a new, suffixed slot id).
  */
 export function missingPresetSample(song: { samples: readonly SampleSlot[] }, inst: Instrument): SampleSlot | undefined {
-  if ((inst.kind !== 'snes-sample' && inst.kind !== 'sample') || !inst.presetId) return undefined
+  const sampleId = instSampleId(inst)
+  if (sampleId === undefined || !inst.presetId) return undefined
   const preset = Object.values(PRESET_BANKS)
     .flat()
     .find((p) => p.id === inst.presetId)
   const want = preset?.sample
-  if (!want || want.id !== inst.sample) return undefined
+  if (!want || want.id !== sampleId) return undefined
   const same = (a: SampleSlot, b: SampleSlot): boolean => JSON.stringify(a.source) === JSON.stringify(b.source) && a.loopStart === b.loopStart
   let id = want.id
   for (let n = 2; ; n++) {
@@ -109,6 +116,6 @@ export function missingPresetSample(song: { samples: readonly SampleSlot[] }, in
     if (same(existing, want)) return undefined
     id = `${want.id}-${n}`
   }
-  inst.sample = id
+  Object.assign(inst, { sample: id })
   return { ...structuredClone(want), id }
 }

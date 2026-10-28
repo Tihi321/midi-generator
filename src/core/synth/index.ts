@@ -12,6 +12,8 @@ export {
   type VoiceArgs,
   type VoiceFactory,
   registerVoice,
+  markChipPlayable,
+  isChipPlayable,
   createVoice,
   SilentVoice,
   BlipVoice

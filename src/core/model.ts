@@ -211,13 +211,25 @@ export function requireKey(key: string): PitchClass {
   return pc
 }
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v)
+}
+
+/** Defaults plus the fields of `patch`; nested objects (SNES echo, PS1 reverb, Dreamcast dsp) merge field-wise. */
+function mergeChipConfig(base: ChipConfig, patch: Partial<ChipConfig> | undefined, chip: ChipId): ChipConfig {
+  const out: Record<string, unknown> = { ...base }
+  for (const [k, v] of Object.entries(patch ?? {})) {
+    const cur = out[k]
+    out[k] = isPlainObject(cur) && isPlainObject(v) ? { ...cur, ...v } : v
+  }
+  out.chip = chip
+  return out as unknown as ChipConfig
+}
+
 export function createSong(opts: CreateSongOptions): Song {
   const profile = getChipProfile(opts.chip)
   const base = defaultChipConfig(opts.chip)
-  const chipConfig = { ...base, ...(opts.chipConfig ?? {}), chip: opts.chip } as ChipConfig
-  if (chipConfig.chip === 'snes' && opts.chipConfig && 'echo' in opts.chipConfig && opts.chipConfig.echo) {
-    chipConfig.echo = { ...(base as typeof chipConfig).echo, ...opts.chipConfig.echo }
-  }
+  const chipConfig = mergeChipConfig(base, opts.chipConfig, opts.chip)
   const patternLength = opts.patternLength ?? DEFAULT_PATTERN_LENGTH
   assertPatternLength(patternLength)
   const timing: Timing = {

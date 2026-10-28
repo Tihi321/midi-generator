@@ -157,10 +157,11 @@ describe('drums', () => {
 })
 
 describe('moods', () => {
-  it('has the 16 required moods plus the 4 calm ones with complete recipes for every chip', () => {
+  it('has the 16 required moods, the 4 calm ones and the 4 synth ones with complete recipes for every chip', () => {
     expect(MOOD_IDS).toEqual([
       'heroic', 'battle', 'boss', 'spooky', 'dungeon', 'chill', 'town', 'overworld', 'victory', 'game-over', 'title', 'shop',
-      'underwater', 'desert', 'castle', 'sad', 'ambient', 'lullaby', 'peaceful', 'mysterious-calm'
+      'underwater', 'desert', 'castle', 'sad', 'ambient', 'lullaby', 'peaceful', 'mysterious-calm',
+      'synthwave', 'outrun', 'darkwave', 'dreamwave'
     ])
     for (const m of MOODS) {
       expect(m.bpm[0]).toBeLessThan(m.bpm[1])
@@ -186,6 +187,55 @@ describe('moods', () => {
     expect(() => requireMood('polka')).toThrow(/Valid moods: heroic/)
     expect(requireMood('victory').arrangement.loopFrom).toBeNull()
     expect(requireMood('chill').groove).toEqual([7, 5])
+  })
+  it('has the synth moods with their recipes, aliases and the old alias for dreamy', () => {
+    const synth = ['synthwave', 'outrun', 'darkwave', 'dreamwave'].map((id) => requireMood(id))
+    expect(synth.map((m) => m.bpm)).toEqual([[96, 118], [108, 118], [88, 112], [80, 100]])
+    expect(requireMood('synthwave').keys).toEqual(['A', 'E', 'D', 'F#', 'C'])
+    expect(requireMood('synthwave').scales).toEqual(['minor', 'dorian'])
+    expect(requireMood('synthwave').arrangement.sections.map((s) => [s.name, s.bars])).toEqual([['Intro', 4], ['A', 8], ['B', 8], ['A', 8], ['Bridge', 4]])
+    for (const m of synth) {
+      expect(m.arrangement.loopFrom, m.id).toBe('A')
+      expect(m.techniques.length, m.id).toBeGreaterThanOrEqual(4)
+      expect(m.drumStyles.length, m.id).toBeGreaterThan(0)
+      expect(m.progressions.length, m.id).toBeGreaterThan(1)
+      for (const s of m.scales) expect(SCALES[s]!.intervals, `${m.id}:${s}`).toContain(3) // minor family
+    }
+    expect(requireMood('synthwave').techniques.join(' ')).toMatch(/detuned saw lead/i)
+    for (const [a, id] of [['retrowave', 'synthwave'], ['synth', 'synthwave'], ['80s', 'synthwave'], ['chase', 'outrun'], ['drive', 'outrun'],
+      ['coldwave', 'darkwave'], ['goth', 'darkwave'], ['chillwave', 'dreamwave'], ['dreamsynth', 'dreamwave'], ['dreamy', 'ambient']] as const) {
+      expect(findMood(a)!.id, a).toBe(id)
+    }
+  })
+  it('tags the progressions and drum styles of the synth moods without changing the other moods', () => {
+    const SYNTH_IDS = ['synthwave', 'outrun', 'darkwave', 'dreamwave']
+    const newProgs = ['synth-drive', 'synth-rise', 'dark-pulse', 'dream-float']
+    expect(PROGRESSIONS.slice(-4).map((p) => p.id)).toEqual(newProgs)
+    for (const id of newProgs) expect(PROGRESSIONS.find((p) => p.id === id)!.moods.every((m) => SYNTH_IDS.includes(m)), id).toBe(true)
+    // epic-minor is the canonical synthwave loop (no duplicate of its numerals) and the underwater drift carries the dark moods
+    expect(requireProgression('epic-minor').moods).toEqual(expect.arrayContaining(['heroic', 'battle', 'overworld', 'castle', 'synthwave', 'outrun']))
+    expect(requireProgression('underwater-minor').moods).toEqual(expect.arrayContaining(['underwater', 'dungeon', 'chill', 'darkwave', 'dreamwave']))
+    expect(PROGRESSIONS.filter((p) => p.numerals.join(' ') === 'i bVI bIII bVII').map((p) => p.id)).toEqual(['epic-minor'])
+    expect(requireMood('synthwave').progressions[0]).toBe('epic-minor')
+    expect(realizeProgression(requireProgression('dream-float'), 'A').map((c) => c.name)).toEqual(['Am7', 'Fmaj7', 'Cmaj7', 'G'])
+    // the new drum styles are the last ones, tagged only with synth moods, and fill with toms
+    const newStyles = ['synthwave-gated', 'outrun-four', 'darkwave-pulse', 'dreamwave-half']
+    expect(DRUM_STYLES.slice(-4).map((s) => s.id)).toEqual(newStyles)
+    for (const id of newStyles) {
+      const s = requireDrumStyle(id)
+      expect(s.moods.every((m) => SYNTH_IDS.includes(m)), id).toBe(true)
+      expect(s.fill?.tom, id).toBeDefined()
+    }
+    expect(drumStylesForMood('synthwave').map((s) => s.id)).toEqual(['synthwave-gated', 'outrun-four'])
+    expect(drumStylesForMood('outrun')[0]!.id).toBe('outrun-four')
+    expect(drumStylesForMood('darkwave').map((s) => s.id)).toEqual(['darkwave-pulse'])
+    expect(drumStylesForMood('dreamwave').map((s) => s.id)).toEqual(['dreamwave-half'])
+    expect(requireDrumStyle('synthwave-gated').lanes.snare).toBe('....x.......x...')
+    // no other mood sees the new entries
+    for (const m of MOODS.filter((x) => !SYNTH_IDS.includes(x.id))) {
+      for (const id of newProgs) expect(m.progressions, `${m.id} ${id}`).not.toContain(id)
+      for (const id of newStyles) expect(m.drumStyles, `${m.id} ${id}`).not.toContain(id)
+    }
   })
 })
 

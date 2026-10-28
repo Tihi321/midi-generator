@@ -7,3 +7,4 @@ dist
 !.yarn/releases
 !.yarn/plugins
 .pnp.*
+.claude/director/

@@ -110,8 +110,21 @@ export const ROLE_CHANNELS: Record<ChipId, Partial<Record<Role, string[]>>> = {
     lead: ['C2', 'C1'], arp: ['C4'], pad: ['C3'], pluck: ['C4'], bell: ['C4'],
     strings: ['C3'], brass: ['C2'], organ: ['C3'], flute: ['C2'], choir: ['C3'], sfx: ['C4'],
     bass: ['C1'], kick: ['C5', 'C6'], snare: ['C6', 'C5'], hihat: ['C6', 'C5'], openhat: ['C6'], crash: ['C6'], clap: ['C6'], tom: ['C5']
+  },
+  // PS1 and Dreamcast share one layout in V1..V16 (extra voices of the 24/32/64-voice songs are free for doubling)
+  ps1: {
+    bass: ['V1'], lead: ['V2', 'V3'], pad: ['V4', 'V5', 'V6'], strings: ['V5', 'V4'], choir: ['V6'], organ: ['V5'], arp: ['V7'],
+    pluck: ['V8', 'V7'], bell: ['V9'], brass: ['V10', 'V2'], flute: ['V2'], sfx: ['V11'], tom: ['V12'], kick: ['V13'],
+    snare: ['V14'], clap: ['V14'], hihat: ['V15'], openhat: ['V15'], crash: ['V16']
+  },
+  dreamcast: {
+    bass: ['V1'], lead: ['V2', 'V3'], pad: ['V4', 'V5', 'V6'], strings: ['V5', 'V4'], choir: ['V6'], organ: ['V5'], arp: ['V7'],
+    pluck: ['V8', 'V7'], bell: ['V9'], brass: ['V10', 'V2'], flute: ['V2'], sfx: ['V11'], tom: ['V12'], kick: ['V13'],
+    snare: ['V14'], clap: ['V14'], hihat: ['V15'], openhat: ['V15'], crash: ['V16']
   }
 }
+
+const SAMPLE_ROLE_KINDS: Partial<Record<Role, ChannelKind[]>> = { lead: ['sample'], bass: ['sample'], pad: ['sample'], kick: ['sample'], snare: ['sample'], hihat: ['sample'], openhat: ['sample'], crash: ['sample'], clap: ['sample'], tom: ['sample'], arp: ['sample'] }
 
 /** Channel kinds that play a role by default on a chip, most preferred first. */
 export const ROLE_CHANNEL_KINDS: Record<ChipId, Partial<Record<Role, ChannelKind[]>>> = {
@@ -119,7 +132,9 @@ export const ROLE_CHANNEL_KINDS: Record<ChipId, Partial<Record<Role, ChannelKind
   gb: { lead: ['pulse'], bass: ['wave'], kick: ['noise'], snare: ['noise'], hihat: ['noise'], openhat: ['noise'], crash: ['noise'], clap: ['noise'], tom: ['noise'], pad: ['wave', 'pulse'], arp: ['pulse'] },
   genesis: { lead: ['fm', 'psg-square'], bass: ['fm'], pad: ['fm'], kick: ['sample', 'psg-noise'], snare: ['psg-noise', 'sample'], hihat: ['psg-noise'], openhat: ['psg-noise'], crash: ['psg-noise'], clap: ['psg-noise'], tom: ['sample', 'psg-noise'], arp: ['fm', 'psg-square'] },
   snes: { lead: ['sample'], bass: ['sample'], pad: ['sample'], kick: ['sample'], snare: ['sample'], hihat: ['sample'], openhat: ['sample'], crash: ['sample'], clap: ['sample'], tom: ['sample'], arp: ['sample'] },
-  pce: { lead: ['pce-wave'], bass: ['pce-wave'], pad: ['pce-wave'], kick: ['pce-wave'], snare: ['pce-wave'], hihat: ['pce-wave'], openhat: ['pce-wave'], crash: ['pce-wave'], clap: ['pce-wave'], tom: ['pce-wave'], arp: ['pce-wave'] }
+  pce: { lead: ['pce-wave'], bass: ['pce-wave'], pad: ['pce-wave'], kick: ['pce-wave'], snare: ['pce-wave'], hihat: ['pce-wave'], openhat: ['pce-wave'], crash: ['pce-wave'], clap: ['pce-wave'], tom: ['pce-wave'], arp: ['pce-wave'] },
+  ps1: SAMPLE_ROLE_KINDS,
+  dreamcast: SAMPLE_ROLE_KINDS
 }
 
 export function defaultChannelKinds(chip: ChipId, role: Role): ChannelKind[] {

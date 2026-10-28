@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { type ChipId, PITCH_CLASSES, SCALES, listChips, listMoods } from '../../core'
+import { defaultVoices, voiceChoices } from '../lib/newSong'
 import { newSong, openProjectFromPath, openProjectText, saveProject } from '../state/actions'
 import { session } from '../state/session'
 import { useUi } from '../state/ui'
@@ -18,11 +19,14 @@ export function NewSongDialog() {
   const [scale, setScale] = useState('major')
   const [mood, setMood] = useState('')
   const [length, setLength] = useState(64)
+  const [voices, setVoices] = useState(0)
   const info = chips.find((c) => c.id === chip)
+  const voiceOptions = voiceChoices(chip)
+  const shownVoices = voiceOptions.includes(voices) ? voices : defaultVoices(chip)
   const create = (): void => {
     const m = moods.find((x) => x.id === mood)
     const tempo = Math.max(20, Math.min(400, Math.round(Number(bpm)) || 120))
-    if (newSong({ chip, name, bpm: tempo, key, scale, moods: m ? [m.id] : [], patternLength: length })) close()
+    if (newSong({ chip, name, bpm: tempo, key, scale, moods: m ? [m.id] : [], patternLength: length, voices: shownVoices || undefined })) close()
   }
   return (
     <Modal title="New song" onClose={close} testId="dialog-new">
@@ -37,6 +41,18 @@ export function NewSongDialog() {
             ))}
           </select>
         </label>
+        {voiceOptions.length > 0 && (
+          <label>
+            Voices
+            <select value={shownVoices} onChange={(e) => setVoices(Number(e.target.value))} data-testid="new-voices" title="Channels V1..Vn; set when the song is created (the default role layout uses V1..V16, extra voices are free for doubling)">
+              {voiceOptions.map((n) => (
+                <option key={n} value={n}>
+                  {n} voices
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           Name
           <input value={name} onChange={(e) => setName(e.target.value)} data-testid="new-name" />
@@ -97,7 +113,8 @@ export function NewSongDialog() {
       </div>
       {info && (
         <p className="hint" data-testid="new-chip-info">
-          {info.channels.map((c) => c.id).join(' ')}: {info.description}
+          {info.channels.map((c) => c.id).join(' ')}
+          {shownVoices > info.channels.length ? ` ... V${shownVoices}` : ''}: {info.description}
         </p>
       )}
       <p className="hint">The current song and its undo history are discarded.</p>

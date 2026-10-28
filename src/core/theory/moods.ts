@@ -281,6 +281,51 @@ const SEEDS: MoodSeed[] = [
       'A very soft, slow kick pulse (or nothing) keeps time without driving.',
       'Pad and choir sounds with slow attacks make the harmony breathe.'
     ]
+  },
+  // ---- synth moods (MDI-10): default chips are PS1 and Dreamcast; they also work on the other chips
+  {
+    id: 'synthwave', name: 'Synthwave', description: '80s neon night-drive: detuned saw lead over a plucky 16th arpeggio, straight eighth bass, gated-reverb snare.',
+    bpm: [96, 118], keys: ['A', 'E', 'D', 'F#', 'C'], scales: ['minor', 'dorian'], lead: 'lead', harmony: 'arp', pad: 'pad',
+    sections: [['Intro', 4], ['A', 8], ['B', 8], ['A', 8], ['Bridge', 4]], loopFrom: 'A',
+    techniques: [
+      'Detuned saw lead an octave above the arp; let the notes ring and answer a 2-bar phrase with a variation.',
+      'Gated snare on 2 and 4, kick on 1, the "and" of 2 and 3, eighth-note hats, a crash on the first bar of each phrase.',
+      'Sidechain feel: pads enter on the off-beat just after the kick, so the volume seems to duck on every kick hit.',
+      'Chords i-bVI-bIII-bVII (or i-bVII-bVI-bVII), one chord per bar; the bass keeps straight eighths on the root with an octave on the last one.'
+    ]
+  },
+  {
+    id: 'outrun', name: 'Outrun', description: 'Driving chase music: rolling 16th bass, four on the floor, bright brass stabs and a soaring lead.',
+    bpm: [108, 118], keys: ['A', 'E', 'F#', 'D'], scales: ['minor', 'phrygian', 'dorian'], lead: 'lead', harmony: 'arp', pad: 'pad',
+    sections: [['Intro', 4], ['A', 8], ['B', 8], ['A', 8], ['B', 8]], loopFrom: 'A',
+    techniques: [
+      'Rolling sixteenth-note bass on the root with an octave pop; it never stops and keeps the car moving.',
+      'Kick on every beat, open hat on the off-beats, snare (gated) on 2 and 4; a tom run fills the last bar of a phrase.',
+      'Stab brass on the chord changes (and a push on the last 8th before the next chord); leave space after each stab.',
+      'Lead in long, soaring notes that climb to the fifth; double it an octave down with a short delay for the chorus-style width.'
+    ]
+  },
+  {
+    id: 'darkwave', name: 'Darkwave', description: 'Cold and brooding: minor and phrygian colour, steady eighth bass, sparse icy arps and a big hall reverb.',
+    bpm: [88, 112], keys: ['E', 'A', 'D', 'C#'], scales: ['minor', 'phrygian', 'harmonic-minor'], lead: 'lead', harmony: 'arp', pad: 'strings',
+    sections: [['Intro', 4], ['A', 8], ['B', 8], ['A', 8], ['Bridge', 4]], loopFrom: 'A',
+    techniques: [
+      'Keep the bass on straight eighths (an FM or analog bass), root only, with the octave on the last eighth.',
+      'Sparse, cold arps: soft sixteenths high above the lead; let the pads hold the harmony with a long reverb tail.',
+      'Chords i-bII-bVI-bVII or i-bVII-bVI-bVII; use the b2 (phrygian) and the leading tone (harmonic minor) for tension.',
+      'Gated snare on 2 and 4 with a pulsing kick; keep hats on the off-beats and leave the fills small.'
+    ]
+  },
+  {
+    id: 'dreamwave', name: 'Dreamwave', description: 'Hazy, nostalgic and slow: maj7 colour, lush chorus pads, a half-time beat and a floating lead.',
+    bpm: [80, 100], keys: ['F', 'C', 'G', 'D#'], scales: ['dorian', 'minor'], lead: 'lead', harmony: 'arp', pad: 'pad',
+    sections: [['Intro', 4], ['A', 8], ['B', 8], ['A', 8], ['Bridge', 4]], loopFrom: 'A',
+    techniques: [
+      'Slow pads with maj7 and 7th colour (i7, bVImaj7, bIIImaj7, bVII), one chord every two bars, with a big chorus.',
+      'Half-time drums: snare only on beat 3, a soft kick, toms in the fills.',
+      'An electric-piano pad doubles the chords; a detuned saw lead floats above in long notes.',
+      'Keep the bass slow (root and fifth) so the pads and the chorus carry the sound.'
+    ]
   }
 ]
 
@@ -315,6 +360,18 @@ export const CHIP_IDIOMS: Record<ChipId, string[]> = {
     'C5 and C6 can be noise: use them for hats and snares.',
     'Switch waves with Wxx or the timbre macro for evolving timbres.',
     'Pan is per side (4-bit): mid-hard pans keep the mix open.'
+  ],
+  ps1: [
+    'Everything is a sample (4-bit ADPCM grit): pads and strings with the hardware reverb sound huge; keep bass and kick dry.',
+    'Reverb is global: pick a preset (studio-large, hall, space-echo) and depth, then switch it per voice with E01/E00.',
+    'Sixteen voices in a fixed layout: bass V1, leads V2/V3, pads V4-V6, arp V7, pluck V8, toms V12, kick V13, snare V14, hats V15, crash V16; 24-voice songs add free voices for doubling.',
+    'Pitch modulation (pmod, from V2 on) and the noise generator give metallic and FM-like colours; watch the 512 KB of SPU RAM.'
+  ],
+  dreamcast: [
+    'Clean 16-bit samples (or 8-bit / ADPCM to save the 2 MB of RAM) on up to 64 slots; every slot has its own envelope, LFO and filter.',
+    'The resonant filter envelope shapes brass swells and bass plucks; the LFO adds vibrato and tremolo.',
+    'The DSP is global: choose chorus-hall for pads and leads, delay or echo for rhythmic repeats, and switch it per slot with E01/E00.',
+    'Sixteen slots in a fixed layout: bass V1, leads V2/V3, pads V4-V6, arp V7, pluck V8, toms V12, kick V13, snare V14, hats V15, crash V16; 32 and 64 slots add free voices for doubling.'
   ]
 }
 
@@ -374,6 +431,25 @@ function chipPlan(chip: ChipId, seed: MoodSeed): { channels: ChannelPlan[]; idio
         { channel: 'C6', role: 'snare', part: 'snare (noise) / kick' }
       ]
       break
+    case 'ps1':
+    case 'dreamcast': {
+      const fx = chip === 'ps1' ? 'reverb' : 'DSP'
+      channels = [
+        { channel: 'V1', role: bass, part: 'bass line' },
+        { channel: 'V2', role: seed.lead, part: 'lead melody' },
+        { channel: 'V3', role: seed.lead, part: `lead double (an octave down, ${fx} on)` },
+        { channel: 'V4', role: seed.pad, part: `sustained chords, root (${fx} on)` },
+        { channel: 'V5', role: seed.pad, part: `sustained chords, third (${fx} on)` },
+        { channel: 'V6', role: seed.pad, part: `sustained chords, fifth (${fx} on)` },
+        { channel: 'V7', role: seed.harmony, part: 'arpeggio or stabs' },
+        { channel: 'V8', role: 'pluck', part: 'counter-line or pluck' },
+        { channel: 'V13', role: 'kick', part: 'kick' },
+        { channel: 'V14', role: 'snare', part: `snare and claps (${fx} on)` },
+        { channel: 'V15', role: 'hihat', part: 'hats' },
+        { channel: 'V16', role: 'crash', part: 'crash cymbal (first bar of a phrase); the toms play on V12' }
+      ]
+      break
+    }
   }
   return { channels, idioms: CHIP_IDIOMS[chip] }
 }
@@ -416,7 +492,9 @@ const MOOD_ALIASES: Record<string, string> = {
   intro: 'title', store: 'shop', market: 'shop', water: 'underwater', ocean: 'underwater', sea: 'underwater', arabian: 'desert',
   egypt: 'desert', fortress: 'castle', gothic: 'castle', melancholy: 'sad', sorrow: 'sad', emotional: 'sad',
   serene: 'peaceful', tranquil: 'peaceful', quiet: 'peaceful', sleep: 'lullaby', bedtime: 'lullaby', dreamy: 'ambient', drone: 'ambient',
-  mysterious: 'mysterious-calm', enigmatic: 'mysterious-calm', curious: 'mysterious-calm'
+  mysterious: 'mysterious-calm', enigmatic: 'mysterious-calm', curious: 'mysterious-calm',
+  retrowave: 'synthwave', synth: 'synthwave', '80s': 'synthwave', chase: 'outrun', drive: 'outrun', coldwave: 'darkwave', goth: 'darkwave',
+  chillwave: 'dreamwave', dreamsynth: 'dreamwave'
 }
 
 export function findMood(ref: string): MoodRecipe | undefined {

@@ -41,6 +41,40 @@ function richSong(): Song {
   return song
 }
 
+describe('PS1 and Dreamcast project files', () => {
+  it('round-trips voices and nested config, and 64-voice patterns', () => {
+    const ps1 = createSong({ chip: 'ps1', chipConfig: { voices: 24, reverb: { preset: 'space-echo', depth: 0.7 } } as never, patternLength: 16 })
+    createCellsCommand(ps1, [{ channel: 'V24', pattern: 0, row: 1, cell: { note: 60 } }]).apply(ps1)
+    const ps1Back = parseProject(serializeProject(ps1))
+    sameSong(ps1, ps1Back)
+    expect(ps1Back.chipConfig).toEqual({ chip: 'ps1', voices: 24, reverb: { preset: 'space-echo', depth: 0.7, inputVol: 1 } })
+    expect(ps1Back.channels).toHaveLength(24)
+    const dc = createSong({ chip: 'dreamcast', chipConfig: { voices: 64, dsp: { preset: 'echo' } } as never, patternLength: 16 })
+    createCellsCommand(dc, [{ channel: 'V64', pattern: 0, row: 1, cell: { note: 60 } }]).apply(dc)
+    const dcBack = parseProject(serializeProject(dc, false))
+    sameSong(dc, dcBack)
+    expect(dcBack.channels).toHaveLength(64)
+    expect(dcBack.chipConfig).toMatchObject({ chip: 'dreamcast', voices: 64, dsp: { preset: 'echo' } })
+  })
+  it('rejects a bad voice count, preset or kind field with a readable path', () => {
+    const file = JSON.parse(serializeProject(createSong({ chip: 'ps1' }))) as { song: { chipConfig: Record<string, unknown>; instruments: unknown[] } }
+    const bad = (mutate: (f: typeof file) => void): string => {
+      const copy = structuredClone(file)
+      mutate(copy)
+      try {
+        projectToSong(copy)
+      } catch (e) {
+        return (e as Error).message
+      }
+      return ''
+    }
+    expect(bad((f) => { f.song.chipConfig.voices = 20 })).toMatch(/chipConfig/)
+    expect(bad((f) => { (f.song.chipConfig.reverb as Record<string, unknown>).preset = 'cathedral' })).toMatch(/chipConfig.reverb.preset/)
+    expect(bad((f) => { f.song.instruments.push({ name: 'x', kind: 'psx-sample', sample: 's', baseNote: 60, reverb: true }) })).toMatch(/adsr/)
+    expect(bad((f) => { f.song.instruments.push({ name: 'x', kind: 'aica-sample', sample: 's', baseNote: 60, format: 'mp3', aeg: {}, send: 0 }) })).toMatch(/format|aeg/)
+  })
+})
+
 describe('project round trip', () => {
   it('serialises and parses a NES song', () => {
     const song = richSong()
@@ -69,7 +103,7 @@ describe('project round trip', () => {
     expect(song.patterns.size).toBe(1)
   })
   it('round-trips every chip with its config, instruments and samples', () => {
-    for (const chip of ['nes', 'gb', 'genesis', 'snes', 'pce'] as const) {
+    for (const chip of ['nes', 'gb', 'genesis', 'snes', 'pce', 'ps1', 'dreamcast'] as const) {
       const song = createSong({ chip, patternLength: 16 })
       if (chip === 'nes' || chip === 'gb') createInstrumentCommand(song, { op: 'add', instrument: resolvePreset(chip, 'lead') }).apply(song)
       if (chip === 'genesis') {
@@ -86,6 +120,24 @@ describe('project round trip', () => {
         song.instruments.push(
           { name: 'str', kind: 'snes-sample', sample: 's2', baseNote: 60, env: { adsr: [15, 7, 7, 0] }, echo: true, fine: 5 },
           { name: 'g', kind: 'snes-sample', sample: 's1', baseNote: 48, env: { gain: { mode: 'exp-dec', rate: 10 } }, echo: false }
+        )
+      }
+      if (chip === 'ps1') {
+        song.samples.push({ id: 'p1', name: 'rec', source: { kind: 'recipe', recipe: 'strings', params: {} } })
+        song.instruments.push(
+          { name: 'p', kind: 'psx-sample', sample: 'p1', baseNote: 60, fine: -7, adsr: { attack: 40, attackExp: true, decay: 6, sustainLevel: 9, sustainRate: 90, sustainDir: 'dec', sustainExp: true, release: 11, releaseExp: false }, reverb: true, pmod: true, noise: { shift: 3, step: 1 } },
+          { name: 'q', kind: 'psx-sample', sample: 'p1', baseNote: 48, adsr: { attack: 0, attackExp: false, decay: 0, sustainLevel: 15, sustainRate: 127, sustainDir: 'inc', sustainExp: false, release: 5, releaseExp: true }, reverb: false, macros: { vol: { values: [15, 8] } } }
+        )
+      }
+      if (chip === 'dreamcast') {
+        song.samples.push({ id: 'd1', name: 'rec', source: { kind: 'recipe', recipe: 'pad', params: {} } })
+        song.instruments.push(
+          {
+            name: 'd', kind: 'aica-sample', sample: 'd1', baseNote: 60, fine: 3, format: 'adpcm', aeg: { ar: 20, d1r: 9, d2r: 3, rr: 14, dl: 6, krs: 2 },
+            filter: { q: 12, flv: [8191, 4000, 2000, 1000, 500], far: 20, fd1r: 10, fd2r: 5, frr: 12 },
+            lfo: { freq: 14, pitchWave: 'tri', pitchDepth: 2, ampWave: 'noise', ampDepth: 1, reset: true }, send: 11
+          },
+          { name: 'e', kind: 'aica-sample', sample: 'd1', baseNote: 36, format: 'pcm8', aeg: { ar: 31, d1r: 0, d2r: 0, rr: 31, dl: 0 }, send: 0 }
         )
       }
       if (chip === 'pce') {

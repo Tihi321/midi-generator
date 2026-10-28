@@ -5,6 +5,8 @@ import './huc6280'
 import './sn76489'
 import './ym2612'
 import './spc700'
+import './spu'
+import './aica'
 import './sample'
 
 export * from './types'

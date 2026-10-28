@@ -2,6 +2,7 @@
 
 import type { EffectCode, Instrument, SnesConfig, Song } from '../types'
 import type { ChannelDef, Issue, ValidateScope } from './types'
+import { instSampleId } from '../instruments/types'
 import { defineProfile, estimateSampleLength } from './validate'
 
 const FLOW: EffectCode[] = ['B', 'C', 'D', 'F']
@@ -39,7 +40,8 @@ export interface AramUsage {
 export function snesAramUsage(song: Song, sampleSizes?: Record<string, number>): AramUsage {
   const used = new Set<string>()
   for (const inst of song.instruments as Instrument[]) {
-    if (inst.kind === 'snes-sample' || inst.kind === 'sample') used.add(inst.sample)
+    const id = instSampleId(inst)
+    if (id !== undefined) used.add(id)
   }
   const samples: AramUsage['samples'] = []
   for (const slot of song.samples) {

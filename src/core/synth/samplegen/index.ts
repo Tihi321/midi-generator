@@ -1,5 +1,8 @@
 // Sample generation for the SNES sample bank, NES DPCM and the Genesis DAC.
 export { GAUSS, gaussInterpolate } from './gauss'
+// the PS1 and Dreamcast sample targets register themselves when their modules load
+export { PSX_BLOCK_BYTES, PSX_BLOCK_SAMPLES, decodePsx, encodePsx, processForPsx, processUserPcmForPsx, psxByteSize } from './psxAdpcm'
+export { ADPCM_STEP_MAX, aicaByteSize, aicaTargetFor, decodeAicaAdpcm, encodeAicaAdpcm, processForAica16, processForAica8, processForAicaAdpcm, type AicaFormat } from './aicaAdpcm'
 export { BRR_BLOCK_BYTES, BRR_BLOCK_SAMPLES, brrByteSize, brrRoundTrip, decodeBrr, encodeBrr, snrDb, type BrrDecoded, type BrrEncodeOptions, type BrrEncoded } from './brr'
 export { Rng, hashSeed, type RawSample } from './generators'
 export {
@@ -18,13 +21,16 @@ export {
   normalizeRecipeParams,
   pcmToBase64,
   peekSampleLength,
+  getSampleTarget,
   prepareDpcm,
   processForSnes,
   recipeIds,
+  registerSampleTarget,
   resolveSampleSlot,
   resolveSlot,
   sampleByteSize,
   sampleSizes,
+  sampleTargetBytes,
   tryPeekSampleLength,
   tryResolveSampleSlot,
   type DpcmEncoded,
@@ -33,5 +39,6 @@ export {
   type RecipeInfo,
   type RecipeParams,
   type SampleResult,
-  type SampleTarget
+  type SampleTarget,
+  type SampleTargetDef
 } from './bank'
