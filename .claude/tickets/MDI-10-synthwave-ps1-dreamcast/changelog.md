@@ -197,9 +197,23 @@ Chiptune Studio has two new chips, `ps1` (PlayStation SPU) and `dreamcast` (Drea
   - `compose_sfx` stinger on ps1 works.
   - Every ffprobe duration equals the reported one.
 
+- **Live UI check (E1), done after the first changelog with the user's go-ahead.** It drove the built Electron app with Playwright (`.claude/temp/mdi10/ui/ui-check.spec.ts`, using the isolated launcher in `tests/e2e/launch.ts`) and saved screenshots in `.claude/temp/mdi10/ui/shots/`. All 6 steps pass:
+  - **New Song:** PS1 offers 16/24 voices, and 24 gives V1..V24 with the reverb controls.
+  - **PS1 synthwave (composed over MCP):** it plays in time (3.06 s of song in 3.0 s). Changing the reverb preset during playback applies, takes one undo step, and the RAM meter follows it.
+  - **PS1 editor:** reverb and pitch mod save.
+  - **Dreamcast outrun:** it plays in time, and the DSP preset change applies with one undo step. The editor shows the filter; the LFO toggle and the format change save.
+  - **Dense 64-voice song:** every voice holds a supersaw or saw note. Song time kept pace with wall time (6.00 s in 6.00 s, ratio 1.000), so the AudioWorklet kept up.
+  - **Tracker at 64 voices:** keyboard Tab reaches V64 and the view scrolls to it.
+  - **Convert to PS1** with 24 voices works.
+- **Bug found and fixed by the UI check (separate commit):** the tracker body drifted 1 px per channel against the header and cursor, 7.5 px at V8 and 68 px at V64. The header and cursor are laid out in `ch` units, but each body cell was its text width plus a 1 px border.
+  - `styles.css` now draws the separator as an inset shadow.
+  - `TrackerView.tsx` gives each cell its channel's `ch` width.
+  - Measured drift is now 0.0 px on SNES, Genesis and a 64-voice Dreamcast song (`.claude/temp/mdi10/ui/align.spec.ts`).
+  - The existing e2e `editor`/`smoke` specs pass (18 tests).
+- **One console message per app run:** the tail of a CSP notice ("'script-src' was not explicitly set"). It most likely comes from the test harness's string evaluation, but this was not confirmed.
+
 **Not run or not verified:**
 - **Listening:** nobody has listened to any of the renders; only peak and RMS were measured.
-- **`yarn dev` live UI check (E1):** not run. This covers the Voices selects, the reverb/DSP controls, the instrument editors, the order-list CSS, tracker scrolling at 24/64 channels, and AudioWorklet underruns with a dense 64-voice song.
 - **Hardware data from memory:** the reference docs were not available during implementation.
   - PS1: the reverb preset register values; `half-echo`, `echo` and `delay` look inconsistent and should be checked first.
   - Dreamcast: the AEG anchor times and the LFOF table.
@@ -211,5 +225,7 @@ Chiptune Studio has two new chips, `ps1` (PlayStation SPU) and `dreamcast` (Drea
 - Add a per-instrument target hook (`targetOf(inst)`) to `SamplerVoice` and remove the cast in `AicaVoice.startNote`.
 - In the piano roll's "All channels" view, colours repeat every 8 channels. In the tracker, the row-number gutter is not sticky when scrolled sideways.
 - The shared `SamplePicker` in `SampleEditor.tsx` still says "BRR bytes"; the new editors use their own `TargetSamplePicker`.
+- In the sample editors the "Generate" recipe select starts at `strings`, not at the current slot's recipe.
+- The status bar keeps the last action's message ("New PS1 song") after the song changes over MCP.
 
 **Commit status:** committed on `MDI-10_synthwave-ps1-dreamcast` (10 commits, the last `7c845a6`); this changelog is in the commit after it. Not pushed, no PR.
