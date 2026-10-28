@@ -71,6 +71,18 @@ export function TrackerView() {
     else if (top + ROW_H > el.scrollTop + bodyH) el.scrollTop = top + ROW_H - bodyH
   }, [followRow, cur.row, cur.order, centerTab])
 
+  // Keep the cursor channel visible sideways: 16, 24 or 64 channels are wider than the view, and the arrow keys and
+  // Tab move the cursor across them. Only on a channel change, so a manual sideways scroll while playing stays.
+  useEffect(() => {
+    const el = scroller.current
+    const ch = layout.channels[cur.channel]
+    if (!el || !ch || centerTab !== 'tracker') return
+    const left = cur.channel === 0 ? 0 : ch.startCh * chPx.current
+    const right = (ch.startCh + ch.widthCh) * chPx.current
+    if (left < el.scrollLeft) el.scrollLeft = left
+    else if (right > el.scrollLeft + el.clientWidth) el.scrollLeft = right - el.clientWidth
+  }, [cur.channel, layout, centerTab])
+
   const first = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN)
   const last = Math.min(rows - 1, Math.ceil((scrollTop + viewH) / ROW_H) + OVERSCAN)
 

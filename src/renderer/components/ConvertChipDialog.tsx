@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { ChipId } from '../../core'
-import { convertChoices, defaultConvertTarget, reportSummary, runConvert, type ConvertSettings } from '../lib/midiIo'
+import { convertChoices, convertVoices, defaultConvertTarget, reportSummary, runConvert, type ConvertSettings } from '../lib/midiIo'
+import { voiceChoices } from '../lib/newSong'
 import { applyReplacementSong } from '../state/midiActions'
 import { session } from '../state/session'
 import { Modal } from './Controls'
@@ -9,7 +10,11 @@ import { Modal } from './Controls'
 export function ConvertChipDialog(props: { onClose: () => void }) {
   const song = session.song
   const choices = convertChoices(song)
-  const [s, setS] = useState<ConvertSettings>(() => ({ chip: defaultConvertTarget(song), dpcm: false, fm6Dac: false }))
+  const [s, setS] = useState<ConvertSettings>(() => {
+    const chip = defaultConvertTarget(song)
+    return { chip, dpcm: false, fm6Dac: false, voices: convertVoices(song, chip) }
+  })
+  const voiceOptions = voiceChoices(s.chip)
   const outcome = useMemo(() => runConvert(song, s), [song, s])
   const patch = (p: Partial<ConvertSettings>): void => setS((cur) => ({ ...cur, ...p }))
 
@@ -24,7 +29,7 @@ export function ConvertChipDialog(props: { onClose: () => void }) {
       <div className="form">
         <label>
           Target chip
-          <select value={s.chip} onChange={(e) => patch({ chip: e.target.value as ChipId })} data-testid="convert-chip">
+          <select value={s.chip} onChange={(e) => patch({ chip: e.target.value as ChipId, voices: convertVoices(song, e.target.value as ChipId) })} data-testid="convert-chip">
             {choices.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.label}
@@ -33,6 +38,18 @@ export function ConvertChipDialog(props: { onClose: () => void }) {
             ))}
           </select>
         </label>
+        {voiceOptions.length > 0 && (
+          <label>
+            Voices
+            <select value={s.voices ?? voiceOptions[0]} onChange={(e) => patch({ voices: Number(e.target.value) })} data-testid="convert-voices" title="Channels V1..Vn of the converted song (the role layout uses V1..V16; the rest are free)">
+              {voiceOptions.map((n) => (
+                <option key={n} value={n}>
+                  {n} voices
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {s.chip === 'nes' && (
           <label className="check">
             <input type="checkbox" checked={s.dpcm} onChange={(e) => patch({ dpcm: e.target.checked })} data-testid="convert-dpcm" />

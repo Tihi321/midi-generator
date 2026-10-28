@@ -15,8 +15,10 @@ export * from './types'
 export { channelDefFor, defineProfile, estimateSampleLength, ruleSeverity, validateCellForChannel, validateCellsFor } from './validate'
 export { ARAM_BYTES, ECHO_BYTES_PER_STEP, defaultSnesConfig, snesAramUsage } from './snes'
 export type { AramUsage } from './snes'
-export { defaultPs1Config, ps1Channels, ps1Voices } from './ps1'
-export { defaultDreamcastConfig, dreamcastChannels, dreamcastVoices } from './dreamcast'
+export { SPU_RAM_BYTES, SPU_RESERVED_BYTES, defaultPs1Config, ps1Channels, ps1Voices, spuRamUsage } from './ps1'
+export type { SpuRamUsage } from './ps1'
+export { AICA_RAM_BYTES, aicaRamUsage, defaultDreamcastConfig, dreamcastChannels, dreamcastVoices } from './dreamcast'
+export type { AicaRamUsage } from './dreamcast'
 
 export const CHIP_PROFILES: Record<ChipId, ChipProfile> = {
   nes: nesProfile,

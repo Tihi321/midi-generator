@@ -15,8 +15,10 @@ import { previewNote, renameInstrument, updateInstrument } from '../state/action
 import { session } from '../state/session'
 import { NumberField } from './Controls'
 import { MacroEditor } from './MacroEditor'
+import { DreamcastSampleEditor } from './instruments/DreamcastSampleEditor'
 import { FmEditor } from './instruments/FmEditor'
 import { PceWaveEditor } from './instruments/PceWaveEditor'
+import { Ps1SampleEditor } from './instruments/Ps1SampleEditor'
 import { SampleEditor } from './instruments/SampleEditor'
 import { SnesSampleEditor } from './instruments/SnesSampleEditor'
 
@@ -253,7 +255,7 @@ function GbWaveEditor(props: { inst: GbWaveInstrument; commit: Commit }) {
 // ---------------------------------------------------------------- generic fallback
 
 /** JSON editor for kinds without a dedicated editor yet (fm, snes-sample, pce-wave, sample). Replaced in Phase 4. */
-function GenericEditor(props: { inst: Instrument; commit: Commit }) {
+function GenericEditor(props: { inst: Instrument; commit: Commit; hint?: string }) {
   const json = JSON.stringify(props.inst, null, 1)
   const [text, setText] = useState(json)
   const [error, setError] = useState('')
@@ -263,7 +265,7 @@ function GenericEditor(props: { inst: Instrument; commit: Commit }) {
   }, [json])
   return (
     <div className="editor-block">
-      <p className="hint">No dedicated editor for {props.inst.kind} instruments yet: edit the data as JSON.</p>
+      <p className="hint">{props.hint ?? `No dedicated editor for ${props.inst.kind} instruments yet: edit the data as JSON.`}</p>
       <textarea className="json-edit mono" value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} rows={12} data-testid="instrument-json" />
       {error && <div className="error">{error}</div>}
       <div className="modal-actions">
@@ -292,6 +294,16 @@ function GenericEditor(props: { inst: Instrument; commit: Commit }) {
         </button>
       </div>
     </div>
+  )
+}
+
+/** The JSON editor under a dedicated editor: every field, including ones the form does not show. */
+function AdvancedJson(props: { inst: Instrument; commit: Commit }) {
+  return (
+    <details className="advanced-json" data-testid="instrument-advanced">
+      <summary>Advanced (JSON)</summary>
+      <GenericEditor inst={props.inst} commit={props.commit} hint="All fields of the instrument as JSON; Apply validates it and replaces the instrument." />
+    </details>
   )
 }
 
@@ -364,6 +376,22 @@ export function InstrumentEditor(props: { index: number; inst: Instrument }) {
       break
     case 'snes-sample':
       body = <SnesSampleEditor inst={inst} commit={commit} />
+      break
+    case 'psx-sample':
+      body = (
+        <>
+          <Ps1SampleEditor inst={inst} commit={commit} />
+          <AdvancedJson inst={inst} commit={commit} />
+        </>
+      )
+      break
+    case 'aica-sample':
+      body = (
+        <>
+          <DreamcastSampleEditor inst={inst} commit={commit} />
+          <AdvancedJson inst={inst} commit={commit} />
+        </>
+      )
       break
     case 'sample':
       body = <SampleEditor inst={inst} commit={commit} />

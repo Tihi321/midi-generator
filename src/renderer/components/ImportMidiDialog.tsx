@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { type ChipId, listChips } from '../../core'
-import { GRID_CHOICES, PATTERN_LENGTH_CHOICES, defaultImportSettings, readFileBytes, reportSummary, runImport, songNameFromFile, type ImportSettings } from '../lib/midiIo'
+import { GRID_CHOICES, PATTERN_LENGTH_CHOICES, convertVoices, defaultImportSettings, readFileBytes, reportSummary, runImport, songNameFromFile, type ImportSettings } from '../lib/midiIo'
+import { voiceChoices } from '../lib/newSong'
 import { applyReplacementSong } from '../state/midiActions'
 import { session } from '../state/session'
 import { Modal } from './Controls'
@@ -9,9 +10,10 @@ import { Modal } from './Controls'
 export function ImportMidiDialog(props: { onClose: () => void }) {
   const chips = listChips()
   const [file, setFile] = useState<{ name: string; bytes: Uint8Array } | null>(null)
-  const [s, setS] = useState<ImportSettings>(() => defaultImportSettings(session.song.chip))
+  const [s, setS] = useState<ImportSettings>(() => ({ ...defaultImportSettings(session.song.chip), voices: convertVoices(session.song, session.song.chip) }))
   const [readError, setReadError] = useState<string | null>(null)
   const patch = (p: Partial<ImportSettings>): void => setS((cur) => ({ ...cur, ...p }))
+  const voiceOptions = voiceChoices(s.chip)
 
   const outcome = useMemo(() => (file ? runImport(file.bytes, s, session.song.authenticity) : null), [file, s])
 
@@ -51,7 +53,7 @@ export function ImportMidiDialog(props: { onClose: () => void }) {
         </label>
         <label>
           Chip
-          <select value={s.chip} onChange={(e) => patch({ chip: e.target.value as ChipId })} data-testid="import-midi-chip">
+          <select value={s.chip} onChange={(e) => patch({ chip: e.target.value as ChipId, voices: convertVoices(session.song, e.target.value as ChipId) })} data-testid="import-midi-chip">
             {chips.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({c.era})
@@ -59,6 +61,18 @@ export function ImportMidiDialog(props: { onClose: () => void }) {
             ))}
           </select>
         </label>
+        {voiceOptions.length > 0 && (
+          <label>
+            Voices
+            <select value={s.voices ?? voiceOptions[0]} onChange={(e) => patch({ voices: Number(e.target.value) })} data-testid="import-midi-voices" title="Channels V1..Vn of the imported song (more voices keep more MIDI tracks)">
+              {voiceOptions.map((n) => (
+                <option key={n} value={n}>
+                  {n} voices
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           Song name
           <input value={s.name} onChange={(e) => patch({ name: e.target.value })} data-testid="import-midi-name" />

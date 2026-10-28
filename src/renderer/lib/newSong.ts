@@ -1,7 +1,20 @@
 // Starter songs for File > New: the chip's channels plus a small set of preset instruments so the first note
 // typed already makes a sound. Pure.
 
-import { type ChannelKind, type ChipId, type Instrument, type PitchClass, type Song, createSong, instrumentSlug, missingPresetSample, tryResolvePreset } from '../../core'
+import {
+  type ChannelKind,
+  type ChipConfig,
+  type ChipId,
+  type Instrument,
+  type PitchClass,
+  type Song,
+  DC_VOICE_COUNTS,
+  PS1_VOICE_COUNTS,
+  createSong,
+  instrumentSlug,
+  missingPresetSample,
+  tryResolvePreset
+} from '../../core'
 
 export interface NewSongOptions {
   chip: ChipId
@@ -11,6 +24,26 @@ export interface NewSongOptions {
   scale: string
   moods: string[]
   patternLength: number
+  /** Voice count for the chips that have the choice (PS1 16/24, Dreamcast 16/32/64); ignored for the others. */
+  voices?: number
+}
+
+/** Voice counts a chip offers when a song is created (empty = the chip has a fixed channel count). */
+export function voiceChoices(chip: ChipId): readonly number[] {
+  if (chip === 'ps1') return PS1_VOICE_COUNTS
+  if (chip === 'dreamcast') return DC_VOICE_COUNTS
+  return []
+}
+
+/** The voice count a new song gets by default (16 on both chips), 0 for chips without the choice. */
+export function defaultVoices(chip: ChipId): number {
+  return voiceChoices(chip)[0] ?? 0
+}
+
+/** `chipConfig` that sets the voice count (structural: only at creation or conversion); {} when the chip has no such choice or the count is not allowed. */
+export function voicesConfig(chip: ChipId, voices: number | undefined): Partial<ChipConfig> {
+  if (voices === undefined || !voiceChoices(chip).includes(voices)) return {}
+  return { chip, voices } as Partial<ChipConfig>
 }
 
 /** Preset role to try for each channel kind (first match wins; duplicates are skipped). */
@@ -53,7 +86,8 @@ export function createStarterSong(opts: NewSongOptions): Song {
     key: opts.key,
     scale: opts.scale,
     moods: opts.moods,
-    patternLength: opts.patternLength
+    patternLength: opts.patternLength,
+    chipConfig: voicesConfig(opts.chip, opts.voices)
   })
   song.instruments = starterInstruments(song)
   // sample presets (SNES, Genesis DAC, NES DPCM) need their recipe slots

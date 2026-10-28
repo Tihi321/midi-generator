@@ -732,6 +732,21 @@ button.danger {
   overflow-y: auto;
   padding-bottom: 4px;
 }
+/* 16, 24 or 64 channels are wider than the column: the head, the rows and the tools scroll sideways as one */
+.orderlist {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.order-head,
+.order-rows {
+  min-width: max-content;
+}
+.order-tools,
+.order-hint {
+  position: sticky;
+  left: 0;
+  background: var(--panel);
+}
 .orow {
   height: 24px;
 }
@@ -1350,4 +1365,22 @@ input.hex.cur {
 }
 .model-row .free {
   color: #8fe0aa;
+}
+
+/* ---------------------------------------------------------------- sample chip editors (PS1, Dreamcast) */
+
+.advanced-json {
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+.advanced-json > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+  user-select: none;
+  margin-bottom: 4px;
+}
+.ps1-reverb,
+.dc-dsp {
+  row-gap: 4px;
 }

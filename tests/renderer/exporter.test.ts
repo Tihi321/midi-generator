@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createCellsCommand, parseProject, readWav, renderSong } from '../../src/core'
-import { DEFAULT_EXPORT, estimateExport, planProject, planWavExport, renderOptionsFor, sanitizeBaseName } from '../../src/renderer/lib/exporter'
+import { DEFAULT_EXPORT, auxStemIds, estimateExport, planProject, planWavExport, renderOptionsFor, sanitizeBaseName } from '../../src/renderer/lib/exporter'
 import { createStarterSong } from '../../src/renderer/lib/newSong'
 
 function demoSong() {
@@ -40,6 +40,27 @@ describe('export planning', () => {
     const once = estimateExport(song, DEFAULT_EXPORT)
     expect(once.looping).toBe(false)
     expect(once.loopPoints).toBe(false)
+  })
+
+  it('counts the shared effect-bus stem of the sample chips in a stems export', () => {
+    const base = { name: 'x', bpm: 120, key: 'C', scale: 'major', moods: [] as string[], patternLength: 16 }
+    const cases = [
+      { chip: 'snes', aux: ['_echo'] },
+      { chip: 'ps1', aux: ['_reverb'] },
+      { chip: 'dreamcast', aux: ['_dsp'] },
+      { chip: 'nes', aux: [] }
+    ] as const
+    for (const c of cases) {
+      const song = createStarterSong({ ...base, chip: c.chip })
+      expect(auxStemIds(song)).toEqual(c.aux)
+      expect(estimateExport(song, { ...DEFAULT_EXPORT, stems: true }).files).toBe(1 + song.channels.length + c.aux.length)
+      expect(estimateExport(song, DEFAULT_EXPORT).files).toBe(1)
+    }
+    // 24 PS1 voices and 64 Dreamcast voices: one stem each plus the bus
+    const ps1 = createStarterSong({ ...base, chip: 'ps1', voices: 24 })
+    expect(estimateExport(ps1, { ...DEFAULT_EXPORT, stems: true }).files).toBe(1 + 24 + 1)
+    const dc = createStarterSong({ ...base, chip: 'dreamcast', voices: 64 })
+    expect(estimateExport(dc, { ...DEFAULT_EXPORT, stems: true }).files).toBe(1 + 64 + 1)
   })
 
   it('plans a master WAV with loop points and one stem per channel', () => {

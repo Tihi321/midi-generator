@@ -3,6 +3,8 @@ import { play, setLoop, setSongInfo, setVolume, stop } from '../state/actions'
 import { session } from '../state/session'
 import { useUi } from '../state/ui'
 import { NumberField } from './Controls'
+import { DreamcastDspControls } from './DreamcastDspControls'
+import { Ps1ReverbControls } from './Ps1ReverbControls'
 import { SnesEchoControls } from './SnesEchoControls'
 
 function clock(sec: number): string {
@@ -74,6 +76,10 @@ export function Transport() {
       </div>
       {song.chip === 'snes' && <div className="sep" />}
       {song.chip === 'snes' && <SnesEchoControls />}
+      {song.chip === 'ps1' && <div className="sep" />}
+      {song.chip === 'ps1' && <Ps1ReverbControls />}
+      {song.chip === 'dreamcast' && <div className="sep" />}
+      {song.chip === 'dreamcast' && <DreamcastDspControls />}
       <span className="spacer" />
       <div className="group">
         <span className="label">Vol</span>
