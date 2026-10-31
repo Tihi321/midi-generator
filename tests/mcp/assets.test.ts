@@ -65,6 +65,18 @@ describe('library over MCP', () => {
     await expect(client.getPrompt({ name: 'match_style', arguments: {} })).rejects.toThrow(/asset/)
   })
 
+  it('compose_track and remix_to_chip name all seven chips; compose_track leaves the chip to the mood when omitted', () => {
+    for (const name of ['compose_track', 'remix_to_chip']) {
+      const desc = PROMPTS.find((p) => p.name === name)!.arguments.find((a) => a.name === 'chip')!.description
+      for (const chip of ['nes', 'gb', 'genesis', 'snes', 'pce', 'ps1', 'dreamcast']) expect(desc).toContain(chip)
+    }
+    expect(PROMPTS.find((p) => p.name === 'compose_track')!.arguments[0]!.description).toContain('synthwave')
+    const none = buildPrompt('compose_track', { mood: 'synthwave' })!
+    expect(none).toContain('new_song {"mood"')
+    expect(none).not.toContain('"chip":')
+    expect(buildPrompt('compose_track', { mood: 'outrun', chip: 'dreamcast' })).toContain('new_song {"chip":"dreamcast","mood"')
+  })
+
   it('remix_to_chip uses convert_chip', () => {
     const text = buildPrompt('remix_to_chip', { chip: 'snes' })!
     expect(text).toMatch(/convert_chip \{"chip":"snes"\}/)

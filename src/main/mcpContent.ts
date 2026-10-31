@@ -56,15 +56,15 @@ export const PROMPTS: McpPromptInfo[] = [
     name: 'compose_track',
     description: 'Compose a game-music track in a mood for a chip, step by step.',
     arguments: [
-      { name: 'mood', description: 'Mood, e.g. "heroic", "spooky dungeon", "chill shop", "boss battle".', required: true },
-      { name: 'chip', description: 'Chip: nes, gb (8-bit) or genesis, snes, pce (16-bit). Default nes.', required: false },
+      { name: 'mood', description: 'Mood, e.g. "heroic", "spooky dungeon", "chill shop", "boss battle", "synthwave".', required: true },
+      { name: 'chip', description: 'Chip: nes, gb (8-bit), genesis, snes, pce (16-bit), ps1 or dreamcast (sample chips). Default: the mood\'s chip (ps1 for synthwave and darkwave, dreamcast for outrun and dreamwave, snes for calm moods, genesis for chill, shop and castle, nes otherwise).', required: false },
       { name: 'length', description: 'Length, e.g. "32 bars" or "90 seconds". Default: the mood recipe\'s arrangement.', required: false }
     ]
   },
   {
     name: 'remix_to_chip',
     description: 'Re-create the open song for another chip (convert it, then fix what the new chip cannot do).',
-    arguments: [{ name: 'chip', description: 'Target chip: nes, gb, genesis, snes or pce.', required: true }]
+    arguments: [{ name: 'chip', description: 'Target chip: nes, gb, genesis, snes, pce, ps1 or dreamcast.', required: true }]
   },
   {
     name: 'match_style',
@@ -84,15 +84,15 @@ export function buildPrompt(name: string, args: Record<string, string | undefine
   switch (name) {
     case 'compose_track': {
       const mood = args['mood']!.trim()
-      const chip = args['chip']?.trim() || 'nes'
+      const chip = args['chip']?.trim() || undefined // omitted: the mood picks the chip (same as the compose_track tool)
       const length = args['length']?.trim()
       return [
-        `Compose a ${mood} game-music track for the ${chip} chip${length ? `, about ${length} long` : ''}.`,
+        `Compose a ${mood} game-music track ${chip ? `for the ${chip} chip` : 'on the chip that suits the mood'}${length ? `, about ${length} long` : ''}.`,
         '',
         'Follow this workflow (read chiptune-studio://guide if you have not yet):',
         '1. Call get_song to see whether a song is already open. Only call new_song if the user wants a new one or the open song is empty.',
-        `2. Call get_mood_recipe {"mood":"${mood}","chip":"${chip}"} for BPM, key, scales, progressions, arrangement and techniques. Call suggest_progression to get the chords in your key.`,
-        `3. Call new_song {"chip":"${chip}","mood":"<mood id>"} (add name, bpm, key or scale to override the recipe).`,
+        `2. Call get_mood_recipe {"mood":"${mood}"${chip ? `,"chip":"${chip}"` : ''}} for BPM, key, scales, progressions, arrangement and techniques${chip ? '' : ' (the channel plan shown is for the open song\'s chip; pass "chip" to see another one)'}. Call suggest_progression to get the chords in your key.`,
+        `3. Call new_song {${chip ? `"chip":"${chip}",` : ''}"mood":"<mood id>"} (add name, bpm, key or scale to override the recipe).`,
         '4. Call add_instrument for each voice (preset = a role such as lead, arp, bass, pad, or a preset id from list_presets; pass channel).',
         '5. Write section A first: write_drums (get_drum_pattern has grooves), then the bass and harmony with write_pattern, then the lead with write_melody. 64 rows or fewer per call.',
         `6. Build the order list with set_orders for the arrangement${length ? ` (fit it to ${length})` : ''} and set the loop with set_loop. Vary repeats with duplicate_order or copy_pattern (transpose) and edit them.`,
