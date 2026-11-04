@@ -34,3 +34,9 @@ Follow-ups: warm the sample cache on the main thread before posting a song to th
 ## MDI-11: MCP prompts list all seven chips (2026-10-28, branch MDI-11_mcp-prompts-seven-chips)
 
 The MCP prompts `compose_track` and `remix_to_chip` (`src/main/mcpContent.ts`) still listed five chips and said "Default nes". They now name `ps1` and `dreamcast`, the `compose_track` mood examples include "synthwave", and when `chip` is omitted the prompt no longer passes `"chip":"nes"` to `new_song`, so the mood picks the chip as in the `compose_track` tool (PS1 for synthwave and darkwave, Dreamcast for outrun and dreamwave, ...). Limit: the `get_mood_recipe` call in that prompt still shows the open song's chip plan when no chip is given. Test: `tests/mcp/assets.test.ts`.
+
+## MDI-12: Strata model discovery (2026-11-04, branch MDI-12_strata-model-discovery, hub HUB-26)
+
+Done in code and unit tests (replay of Pixel Studio PAR-17). The Strata provider has two `loaded` rows, `strata/default` (thinking off) and `strata/default-low`, that follow whichever model Strata runs: the registry asks `/v1/models` and `/status`, and takes family, context, `extra_body`, `tools`, `vision` and `json_schema` from the `profiles` entry of that model (id prefix match). Roles name only `strata` / `strata-low`; the old `strata/qwen3.8-flash-next(-low)` refs resolve through `aliases`. The chat and Settings > Models show `Strata: <model>`. Seed migration `strata-loaded-v1` (`seed-state.json`, `src/llm/seedMigrate.ts`) moves an existing config folder, including `models.md` `shown` and `app.json` `selectedModel`. Plan: `.claude/tickets/MDI-12-strata-model-discovery/plan.md`.
+
+Not checked live: a real Strata (Qwen, then DeepSeek) and a model switch while the app runs (hub live checks). Strata down keeps the last served model but the provider is not marked down (no down state here; concurrency drops to 1).

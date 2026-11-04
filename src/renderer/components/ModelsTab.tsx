@@ -7,6 +7,8 @@ import { ProviderForm } from './ProviderForm'
 interface Row {
   ref: string
   id: string
+  /** What to show instead of the id (a row that follows the loaded model). */
+  label?: string
   context?: number
   priceIn?: number
   priceOut?: number
@@ -68,7 +70,7 @@ export function ModelsTab() {
     const out = new Map<string, Row>()
     for (const m of models ?? []) {
       if (m.provider !== current.id) continue
-      out.set(m.ref, { ref: m.ref, id: m.id, context: m.context, priceIn: m.priceIn, priceOut: m.priceOut, tools: m.tools, vision: m.vision, shown: m.shown, source: m.source, pickable: true })
+      out.set(m.ref, { ref: m.ref, id: m.id, label: m.label, context: m.context, priceIn: m.priceIn, priceOut: m.priceOut, tools: m.tools, vision: m.vision, shown: m.shown, source: m.source, pickable: true })
     }
     for (const c of catalog?.models ?? []) {
       const known = out.get(c.ref)
@@ -214,7 +216,7 @@ export function ModelsTab() {
                   data-testid={`models-row-${r.ref}`}
                 >
                   <input type="checkbox" checked={r.shown} disabled={!r.pickable} onChange={(e) => void chat.showModels([r.ref], e.target.checked)} />
-                  <span className="model-id">{r.id}</span>
+                  <span className="model-id">{r.label ?? r.id}</span>
                   <span className="hint">{formatContext(r.context)}</span>
                   <span className={r.priceIn === 0 && r.priceOut === 0 && !local ? 'free' : 'hint'}>{formatPrice(r, local)}</span>
                   <Badges m={{ tools: r.tools, vision: r.vision, local }} compact />

@@ -1,7 +1,7 @@
 import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
-import { isMap, isSeq, parseDocument } from 'yaml'
-import type { Document, Node, YAMLSeq } from 'yaml'
+import { isMap, isScalar, isSeq, parseDocument } from 'yaml'
+import type { Document, Node, YAMLMap, YAMLSeq } from 'yaml'
 import { providersSchema } from './config'
 import { splitFrontmatter } from './md'
 import { withFileLock } from './fileLock'
@@ -17,6 +17,8 @@ export const MIGRATED_SEED_PROVIDERS = ['acp'] as const
 interface SeedState {
   version: 1
   providers: string[]
+  /** Ids of the one-off migrations that have run (`strata-loaded-v1`). */
+  migrations?: string[]
 }
 
 interface Parsed {
@@ -67,7 +69,8 @@ function listEnd(p: Parsed): number {
 async function readState(file: string): Promise<SeedState> {
   try {
     const j = JSON.parse(await fs.readFile(file, 'utf8')) as Partial<SeedState>
-    return { version: 1, providers: Array.isArray(j.providers) ? j.providers.filter((x): x is string => typeof x === 'string') : [] }
+    const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+    return { version: 1, providers: strings(j.providers), ...(Array.isArray(j.migrations) ? { migrations: strings(j.migrations) } : {}) }
   } catch {
     return { version: 1, providers: [] }
   }
@@ -116,4 +119,115 @@ async function migrate(configDir: string, seedDir: string | undefined): Promise<
   }
   await fs.writeFile(stateFile, JSON.stringify(state, null, 2) + '\n', 'utf8')
   return added
+}
+
+/** The id `seed-state.json` records (`migrations`) once the Strata `loaded` migration has run. */
+export const STRATA_LOADED_MIGRATION = 'strata-loaded-v1'
+
+/** The refs of the Strata that had fixed model ids, and the neutral ones that replace them. The `-low` one first: the other is its prefix. */
+const STRATA_RENAMES: [string, string][] = [
+  ['strata/qwen3.8-flash-next-low', 'strata/default-low'],
+  ['strata/qwen3.8-flash-next', 'strata/default']
+]
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/** Exact-string rename of the old Strata refs (not inside a longer id). */
+export function renameStrataRefs(text: string): string {
+  let out = text
+  for (const [from, to] of STRATA_RENAMES) {
+    out = out.replace(new RegExp(`(?<![\\w/.-])${escapeRe(from)}(?![\\w.-])`, 'g'), to)
+  }
+  return out
+}
+
+async function readJsonObject(file: string): Promise<Record<string, unknown>> {
+  try {
+    const data: unknown = JSON.parse(await fs.readFile(file, 'utf8'))
+    return data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
+async function renameInFile(file: string): Promise<boolean> {
+  if (!existsSync(file)) return false
+  const text = await fs.readFile(file, 'utf8')
+  const next = renameStrataRefs(text)
+  if (next === text) return false
+  await fs.writeFile(file, next, 'utf8')
+  return true
+}
+
+/**
+ * Moves an existing config folder onto the `loaded` Strata, once (`strata-loaded-v1` in seed-state.json):
+ * - providers.md, provider `strata` (when the user still has it): without a `loaded` row it gets the seed's two `loaded` rows and `profiles`,
+ *   `discover: true`, and loses the rows whose ids are now their aliases; every other row and key stays. Nothing is added back later.
+ * - the old refs `strata/qwen3.8-flash-next(-low)` become `strata/default(-low)` in roles.md, models.md (`shown`) and app.json (`selectedModel`).
+ * A providers.md that can't be read or would be invalid after the change is left alone with a warning and the migration is not recorded.
+ */
+export function migrateStrataLoaded(configDir: string, seedDir: string | undefined): Promise<{ changed: string[]; warnings: string[] }> {
+  return withFileLock(path.join(configDir, 'providers.md'), () => migrateStrata(configDir, seedDir))
+}
+
+async function migrateStrata(configDir: string, seedDir: string | undefined): Promise<{ changed: string[]; warnings: string[] }> {
+  const result = { changed: [] as string[], warnings: [] as string[] }
+  if (!seedDir) return result
+  const stateFile = path.join(configDir, SEED_STATE_FILE)
+  const state = await readState(stateFile)
+  const done = state.migrations ?? []
+  if (done.includes(STRATA_LOADED_MIGRATION)) return result
+
+  const file = path.join(configDir, 'providers.md')
+  let recorded = true
+  if (existsSync(file) && existsSync(path.join(seedDir, 'providers.md'))) {
+    const mine = parseProviders(await fs.readFile(file, 'utf8'))
+    const seed = parseProviders(await fs.readFile(path.join(seedDir, 'providers.md'), 'utf8'))
+    if (!mine || !seed) {
+      result.warnings.push(`${!mine ? 'providers.md' : 'the seed providers.md'} can't be read: the Strata loaded rows were not added`)
+      recorded = false
+    } else {
+      const mineStrata = mine.providers.items.find((item) => idOf(item) === 'strata')
+      const seedStrata = seed.providers.items.find((item) => idOf(item) === 'strata')
+      const models = isMap(mineStrata) ? mineStrata.get('models', true) : undefined
+      const hasLoaded = isSeq(models) && models.items.some((m) => isMap(m) && m.get('loaded') === true)
+      if (isMap(mineStrata) && isMap(seedStrata) && !hasLoaded) {
+        const seedModels = seedStrata.get('models', true)
+        const rows = isSeq(seedModels) ? seedModels.items.filter((m): m is YAMLMap => isMap(m) && m.get('loaded') === true) : []
+        const aliases = new Set(rows.flatMap((r) => (r.toJSON() as { aliases?: string[] }).aliases ?? []))
+        const seedProfiles = seedStrata.get('profiles', true)
+        if (rows.length) {
+          const list: YAMLSeq = isSeq(models) ? models : mine.doc.createNode([])
+          list.items = [...rows.map((r) => r.clone() as Node), ...list.items.filter((m) => !(isMap(m) && aliases.has(String(m.get('id')))))]
+          if (!isSeq(models)) mineStrata.set('models', list)
+          const discover = mineStrata.items.find((pair) => isScalar(pair.key) && pair.key.value === 'discover')
+          if (discover && isScalar(discover.value)) discover.value.value = true
+          else mineStrata.set('discover', true)
+          if (!mineStrata.has('profiles') && isSeq(seedProfiles)) mineStrata.set('profiles', seedProfiles.clone())
+          const front = mine.doc.toString({ lineWidth: 0 }).replace(/\n/g, mine.nl)
+          const check = providersSchema.safeParse(parseDocument(front).toJS())
+          if (!check.success) {
+            result.warnings.push(`providers.md would be invalid with the Strata loaded rows (${check.error.issues[0]?.message ?? '?'}): left as it is`)
+            recorded = false
+          } else {
+            await fs.writeFile(`${file}.tmp`, mine.text.slice(0, mine.frontStart) + front + mine.text.slice(mine.frontStart + mine.front.length), 'utf8')
+            await fs.rename(`${file}.tmp`, file)
+            result.changed.push('providers.md')
+          }
+        }
+      }
+    }
+  }
+  for (const name of ['roles.md', 'models.md']) if (await renameInFile(path.join(configDir, name))) result.changed.push(name)
+  const appFile = path.join(configDir, 'app.json')
+  const app = await readJsonObject(appFile)
+  const selected = typeof app.selectedModel === 'string' ? renameStrataRefs(app.selectedModel) : undefined
+  if (selected !== undefined && selected !== app.selectedModel) {
+    await fs.writeFile(appFile, JSON.stringify({ ...app, selectedModel: selected }, null, 2) + '\n', 'utf8')
+    result.changed.push('app.json')
+  }
+  if (recorded) {
+    const latest = await readState(stateFile)
+    await fs.writeFile(stateFile, JSON.stringify({ ...latest, migrations: [...(latest.migrations ?? []), STRATA_LOADED_MIGRATION] }, null, 2) + '\n', 'utf8')
+  }
+  return result
 }

@@ -125,6 +125,7 @@ export class ModelRouter {
             temperature: req.temperature,
             signal: req.signal,
             extraBody: model.extraBody,
+            jsonSchema: model.jsonSchema,
             meta: req.meta
           })) {
             if (ev.type === 'delta') yield { type: 'delta', text: ev.text }

@@ -75,13 +75,21 @@ interface Loaded {
   configDir: string
 }
 
+/** `Strata: <model>` or `Strata: <model>, thinking low` for a row that follows the loaded model; the id otherwise. */
+function modelLabel(m: ModelInfo): string {
+  if (!m.servedId) return m.id
+  const name = m.provider.name.charAt(0).toUpperCase() + m.provider.name.slice(1)
+  return `${name}: ${m.servedId}${m.extraBody?.['reasoning_effort'] === 'low' ? ', thinking low' : ''}`
+}
+
 function modelInfo(m: ModelInfo): LlmModelInfo {
   const priced = m.priceIn > 0 || m.priceOut > 0
   return {
     ref: m.ref,
     provider: m.provider.id,
     id: m.id,
-    label: m.id,
+    label: modelLabel(m),
+    ...(m.servedId ? { served: m.servedId } : {}),
     tools: m.tools,
     vision: m.vision,
     local: m.provider.local,
@@ -231,12 +239,17 @@ export class LlmService {
       await registry.load()
       if (discover && this.opts.discover !== false) {
         await registry.discover().catch(() => undefined)
-        await registry.syncServerSlots().catch(() => undefined)
+        this.logServed(await registry.syncServerSlots().catch(() => undefined))
       }
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)
     }
     return this.overview(error)
+  }
+
+  /** A server that follows the loaded model (Strata) now runs another one: say so; the next overview carries the new label. */
+  private logServed(r: Awaited<ReturnType<ModelRegistry['syncServerSlots']>> | undefined): void {
+    for (const s of r?.served ?? []) console.info(`models: ${s.provider.id} now serves ${s.to}${s.from ? ` (was ${s.from})` : ''}`)
   }
 
   /** Asks the local providers again which models they have, without re-reading the config files. The chat's model list calls this when it opens. */
@@ -245,7 +258,7 @@ export class LlmService {
       this.refreshing ??= this.get()
         .then(async ({ registry }) => {
           await registry.discover().catch(() => undefined)
-          await registry.syncServerSlots().catch(() => undefined)
+          this.logServed(await registry.syncServerSlots().catch(() => undefined))
         })
         .catch(() => undefined) // overview() reports a config error
         .finally(() => {
