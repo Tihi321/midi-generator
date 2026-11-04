@@ -57,7 +57,7 @@ providers:
         tools: true
         extra_body: { reasoning_effort: low }
     profiles:                     # settings per model Strata may run, matched by id prefix; not refs, not in pickers
-      - id: qwen3.8-flash-next    # matches qwen3.8-flash-next-iq3_s and qwen3.8-flash-next-unsloth-ud-iq4_xs
+      - id: qwen3.8-flash-next    # matches qwen3.8-flash-next-unsloth-ud-iq4_xs and any other Qwen3.8-Flash-Next quant
         family: qwen
         context: 131072
       - id: deepseek-v4.1-flash
@@ -253,7 +253,7 @@ Settings > Models > Add provider adds any OpenAI-compatible server (name, base U
 
 ## Strata
 
-Strata serves one model per process on port 8080, chosen by the `run-*.bat` you start in `D:\Strata`: `run-iq3_s.bat`, `run-iq3_s-solo.bat`, `run-iq3_s-parallel.bat`, `run-unsloth-ud-iq4_xs.bat` (Qwen3.8-Flash-Next) and `run-deepseek-v4.1-flash-ist-das-2.00bpw.bat`, `run-deepseek-v4.1-flash-ista-das-coder.bat` (DeepSeek-V4.1-Flash). Chiptune Studio asks it which one it runs (`model` of `/v1/status`, `/v1/models`) and takes the settings from `profiles`: the entry whose `id` is the model's id, else the longest one the id starts with (`family`, `context`, `extra_body`, `tools`, `vision`, `json_schema`, `max_output`). The two `loaded` rows, `strata/default` (thinking off) and `strata/default-low` (thinking low), follow it, so `roles.md` never names a model; the chat shows `Strata: <model>`. A row's own `extra_body` wins over the profile's, and `context` in a profile must match the `--max-context` of the config (131072 for all six now). When you install a new model, add a profile for it. Strata takes most of the GPU memory with any of them: keep only the nomic embedding model in LM Studio and no ComfyUI while it runs.
+Strata serves one model per process on port 8080, chosen by the `run-*.bat` you start in `D:\Strata`: `run-unsloth-ud-iq4_xs-parallel.bat`, `run-unsloth-ud-iq4_xs.bat` (Qwen3.8-Flash-Next) and `run-deepseek-v4.1-flash-ist-das-2.00bpw.bat`, `run-deepseek-v4.1-flash-ista-das-coder.bat` (DeepSeek-V4.1-Flash). Chiptune Studio asks it which one it runs (`model` of `/v1/status`, `/v1/models`) and takes the settings from `profiles`: the entry whose `id` is the model's id, else the longest one the id starts with (`family`, `context`, `extra_body`, `tools`, `vision`, `json_schema`, `max_output`). The two `loaded` rows, `strata/default` (thinking off) and `strata/default-low` (thinking low), follow it, so `roles.md` never names a model; the chat shows `Strata: <model>`. A row's own `extra_body` wins over the profile's, and `context` in a profile must match the `--max-context` of the config (131072 for all four now). When you install a new model, add a profile for it. Strata takes most of the GPU memory with any of them: keep only the nomic embedding model in LM Studio and no ComfyUI while it runs.
 
 ## Local models with tools
 
