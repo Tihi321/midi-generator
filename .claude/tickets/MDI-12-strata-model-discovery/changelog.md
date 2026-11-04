@@ -20,3 +20,7 @@ Branch `MDI-12_strata-model-discovery`. Replay of PAR-17; committed on the branc
 ### Verification
 - `yarn typecheck`: clean. `yarn test` (vitest run): 79 files, 1186 tests passed.
 - Not run: the Electron app, a real Strata, a live model switch, `yarn test:electron`.
+
+## Polish (checker findings)
+
+- `seed/config/providers.md`: the Strata comment named Pixel Studio in Chiptune Studio's seed; it now says Chiptune Studio. No other "Pixel Studio" left in `seed/`.
