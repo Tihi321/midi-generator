@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { checkBaseUrl, customKeyName, customProviderSlug, removeCustomEntry, saveCustomEntry, setEntryEnabled } from '../../src/llm/customProviders'
 import { parseMd } from '../../src/llm/md'
+import { providersSchema } from '../../src/llm/config'
 import { ModelRegistry } from '../../src/llm/registry'
-import { migrateSeedProviders, SEED_STATE_FILE } from '../../src/llm/seedMigrate'
+import { migrateSeedProviders, migrateStrataLoaded, SEED_STATE_FILE } from '../../src/llm/seedMigrate'
 import { LlmService, type KeyOps } from '../../src/main/llm'
 
 const seedDir = fileURLToPath(new URL('../../seed/config', import.meta.url))
@@ -112,6 +113,38 @@ describe('seed migration', () => {
     await writeFile(file, OLD)
     expect(await migrateSeedProviders(dir, seedDir)).toEqual([])
     expect(await readFile(file, 'utf8')).toBe(OLD)
+  })
+
+  it('strata-loaded-v1 turns the old Strata rows and refs into loaded rows once, keeps the user rows and the other choices', async () => {
+    const old =
+      '---\nkind: providers\nproviders:\n  - id: strata\n    kind: openai-compat\n    local: true\n    base_url: http://127.0.0.1:8080/v1\n    concurrency: auto\n    discover: false # mine\n    models:\n' +
+      '      - id: qwen3.8-flash-next\n        family: qwen\n        tools: true\n      - id: qwen3.8-flash-next-low\n        family: qwen\n      - id: my-own\n        family: llama\n  - id: mock\n    kind: mock\n    models: []\n---\n'
+    await writeFile(file, old)
+    await writeFile(path.join(dir, 'roles.md'), '---\nkind: roles\naliases:\n  strata: strata/qwen3.8-flash-next\n  check: strata/qwen3.8-flash-next-low\nroles:\n  r:\n    models: [strata, strata/qwen3.8-flash-next-iq3_s]\n---\n')
+    await writeFile(path.join(dir, 'models.md'), '---\nkind: models\nshown: [strata/qwen3.8-flash-next, lmstudio/x]\npicked: []\n---\n')
+    await writeFile(path.join(dir, 'app.json'), JSON.stringify({ selectedModel: 'strata/qwen3.8-flash-next-low', contextSize: 4096 }))
+    const r = await migrateStrataLoaded(dir, seedDir)
+    expect(r).toEqual({ changed: ['providers.md', 'roles.md', 'models.md', 'app.json'], warnings: [] })
+    const strata = providersSchema.parse(parseMd(await readFile(file, 'utf8')).data).providers.find((p) => p.id === 'strata')!
+    expect(strata.models.map((m) => [m.id, m.loaded])).toEqual([['default', true], ['default-low', true], ['my-own', false]])
+    expect(strata).toMatchObject({ discover: true, profiles: [{ id: 'qwen3.8-flash-next' }, { id: 'deepseek-v4.1-flash' }] })
+    expect(await readFile(file, 'utf8')).toContain('# mine')
+    expect(await readFile(path.join(dir, 'roles.md'), 'utf8')).toContain('strata: strata/default\n  check: strata/default-low')
+    expect(await readFile(path.join(dir, 'roles.md'), 'utf8')).toContain('strata/qwen3.8-flash-next-iq3_s') // a longer id is not a ref to rename
+    expect(await readFile(path.join(dir, 'models.md'), 'utf8')).toContain('shown: [strata/default, lmstudio/x]')
+    expect(JSON.parse(await readFile(path.join(dir, 'app.json'), 'utf8'))).toEqual({ selectedModel: 'strata/default-low', contextSize: 4096 })
+    expect((JSON.parse(await readFile(path.join(dir, SEED_STATE_FILE), 'utf8')) as { migrations: string[] }).migrations).toEqual(['strata-loaded-v1'])
+    // once: a provider the user removes later is not added back
+    const after = await readFile(file, 'utf8')
+    await writeFile(file, after.replace(/ {2}- id: strata[\s\S]*?(?= {2}- id: mock)/, ''))
+    expect(await migrateStrataLoaded(dir, seedDir)).toEqual({ changed: [], warnings: [] })
+    expect(await readFile(file, 'utf8')).not.toContain('id: strata')
+  })
+
+  it('strata-loaded-v1 does nothing to a deleted strata provider', async () => {
+    await writeFile(file, '---\nkind: providers\nproviders:\n  - id: mock\n    kind: mock\n    models: []\n---\n')
+    expect((await migrateStrataLoaded(dir, seedDir)).changed).toEqual([])
+    expect(await readFile(file, 'utf8')).not.toContain('strata')
   })
 
   it('a fresh copy of the seed only records acp, and a user entry with the same id is not overwritten', async () => {

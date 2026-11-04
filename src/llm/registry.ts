@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { AnthropicClient } from './anthropic'
 import { modelsSchema, providersSchema, rolesSchema } from './config'
-import type { ModelsConfig, ProviderEntry, RolesConfig } from './config'
+import type { ModelsConfig, ProviderEntry, ProviderModelEntry, ProviderProfile, RolesConfig } from './config'
 import { GeminiClient } from './gemini'
 import { resolveKey } from './keys'
 import type { KeyResolver } from './keys'
@@ -39,6 +39,12 @@ export interface ProviderInfo {
   discoverSkip: string[]
   /** Send the JSON schema as `response_format` (`openai-compat`). */
   jsonSchema: boolean
+  /** Has `loaded` rows: its rows stand for whichever model the server runs (Strata). */
+  followsServed: boolean
+  /** The model id the server reported last (kept while it is down, and across config reloads). */
+  servedModel?: string
+  /** Settings per model the server may run, matched by id prefix (providers.md `profiles`). */
+  profiles: ProviderProfile[]
   /** LM Studio: the registry loads a model that isn't loaded yet. */
   loadModels: boolean
   /** Enabled and (local, mock or has a key). */
@@ -64,6 +70,14 @@ export interface ModelInfo {
   /** Accepts images. */
   vision: boolean
   extraBody: Record<string, unknown> | null
+  /** This model's `json_schema` over the provider's (the model row's, else the loaded model's profile). */
+  jsonSchema?: boolean
+  /** A `loaded` row: the model id the server really runs (`deepseek-v4.1-flash` for `strata/default`); undefined until the server has answered. */
+  servedId?: string
+  /** The providers.md row of a `loaded` model, kept to re-apply the loaded model's profile when the server switches. */
+  loadedRow?: ProviderModelEntry
+  /** Other names the row answers to (`strata/qwen3.8-flash-next`); resolved by `resolve`, not listed. */
+  aliases?: string[]
   discovered: boolean
   /** Where it comes from: providers.md, a provider's `discover`, or config/models.md `picked`. */
   source: 'config' | 'discovered' | 'picked'
@@ -133,6 +147,11 @@ export class ModelRegistry {
   private configured = new Map<string, ModelInfo>()
   /** Per `discover` provider: the model ids its server reported at the last discovery that answered. Its list is only these. */
   private installed = new Map<string, Set<string>>()
+  /** Per `loaded` provider: the model id the server runs (L) and its context window, kept across config reloads. */
+  private servedIds = new Map<string, string>()
+  private servedCtx = new Map<string, number>()
+  /** `provider/alias` -> the `loaded` row's ref (the old refs of a Strata that had fixed ids). */
+  private legacyRefs = new Map<string, string>()
   /** The context windows servers reported (see `syncServerSlots`), kept across config reloads. */
   private serverContexts = new Map<string, number>()
   /** The context size from the app's settings: LM Studio loads every model with it, over providers.md. */
@@ -168,6 +187,7 @@ export class ModelRegistry {
 
     const providers = new Map<string, ProviderInfo>()
     const models = new Map<string, ModelInfo>()
+    const legacy = new Map<string, string>()
     for (const p of prov.data.providers) {
       const info: ProviderInfo = {
         id: p.id,
@@ -185,6 +205,9 @@ export class ModelRegistry {
         discover: p.discover,
         discoverSkip: p.discover_skip,
         jsonSchema: p.json_schema,
+        followsServed: p.models.some((m) => m.loaded),
+        servedModel: this.servedIds.get(p.id),
+        profiles: p.profiles,
         loadModels: p.load_models,
         available: false
       }
@@ -192,7 +215,7 @@ export class ModelRegistry {
       providers.set(p.id, info)
       for (const m of p.models) {
         const ref = `${p.id}/${m.id}`
-        models.set(ref, {
+        const model: ModelInfo = {
           ref,
           provider: info,
           id: m.id,
@@ -208,17 +231,26 @@ export class ModelRegistry {
           tools: m.tools ?? !p.local,
           vision: m.vision,
           extraBody: m.extra_body ?? null,
+          jsonSchema: m.json_schema,
+          aliases: m.aliases,
+          loadedRow: m.loaded ? m : undefined,
           discovered: false,
           source: 'config',
           shown: shown.has(ref)
-        })
+        }
+        models.set(ref, model)
+        if (m.loaded) {
+          this.applyServed(model)
+          for (const a of m.aliases) legacy.set(`${p.id}/${a}`, ref)
+        }
       }
     }
     // models picked in the Models settings; providers.md wins when it lists the model too
     for (const m of choices.picked) {
       const info = providers.get(m.provider)
       const ref = `${m.provider}/${m.id}`
-      if (!info || models.has(ref)) continue
+      // a provider that follows the loaded model lists only its `loaded` rows
+      if (!info || models.has(ref) || info.followsServed) continue
       models.set(ref, {
         ref,
         provider: info,
@@ -232,6 +264,7 @@ export class ModelRegistry {
         tools: m.tools ?? !info.local,
         vision: m.vision,
         extraBody: m.extra_body ?? null,
+        jsonSchema: m.json_schema,
         discovered: false,
         source: 'picked',
         shown: true
@@ -240,6 +273,7 @@ export class ModelRegistry {
     this.choices = choices
     this.providers = providers
     this.models = models
+    this.legacyRefs = legacy
     this.configured = new Map(models)
     this.roles = roles.data
     // Keep what discovery found earlier, so a config reload does not forget it.
@@ -254,7 +288,41 @@ export class ModelRegistry {
   private dropMissing(p: ProviderInfo): void {
     const ids = p.discover === true ? this.installed.get(p.id) : undefined
     if (!ids) return
-    for (const [ref, m] of this.models) if (m.provider === p && !ids.has(m.id)) this.models.delete(ref)
+    for (const [ref, m] of this.models) if (m.provider === p && !m.loadedRow && !ids.has(m.id)) this.models.delete(ref)
+  }
+
+  /**
+   * Gives a `loaded` row the settings of the model its server runs (L = `provider.servedModel`): the profile K whose id is L or the longest
+   * one L starts with. `servedId` = L, `family` = K's else guessed from L, `context` = K's else the server's `n_ctx` else the row's,
+   * `extra_body` = K's under the row's (the variant's thinking level wins), `tools` / `vision` = K's else the row's, `json_schema` = the row's else K's.
+   * Without L the row's own values stand. Works in place: the `ModelInfo` objects the router holds see the change.
+   */
+  private applyServed(m: ModelInfo): void {
+    const row = m.loadedRow
+    if (!row) return
+    const p = m.provider
+    const L = p.servedModel
+    const K = L ? findProfile(p.profiles, L) : undefined
+    m.servedId = L
+    m.family = L ? (K?.family ?? guessFamily(L)) : row.family
+    m.context = (L ? (K?.context ?? this.servedCtx.get(p.id)) : undefined) ?? row.context
+    m.maxOutput = K?.max_output ?? row.max_output
+    const extra = { ...K?.extra_body, ...row.extra_body }
+    m.extraBody = Object.keys(extra).length ? extra : null
+    m.tools = K?.tools ?? row.tools ?? !p.local
+    m.vision = K?.vision ?? row.vision
+    m.jsonSchema = row.json_schema ?? K?.json_schema
+  }
+
+  /** Records the model a `loaded` provider's server runs and re-applies the profiles. Returns the change, or null when L is the same as before. */
+  private setServed(p: ProviderInfo, id: string | undefined, nCtx?: number): { provider: ProviderInfo; from?: string; to: string } | null {
+    if (!id) return null
+    const from = this.servedIds.get(p.id)
+    this.servedIds.set(p.id, id)
+    if (nCtx) this.servedCtx.set(p.id, nCtx)
+    p.servedModel = id
+    for (const m of this.models.values()) if (m.provider === p) this.applyServed(m)
+    return from === id ? null : { provider: p, from, to: id }
   }
 
   private setupClient(info: ProviderInfo, keys: KeyResolver): void {
@@ -314,6 +382,13 @@ export class ModelRegistry {
       if (!p.discover || !p.available || !(p.client instanceof OpenAiCompatClient)) continue
       try {
         const listed = await p.client.listModelInfo(signal)
+        if (p.followsServed) {
+          // Strata: the first entry that is not a name for another is the loaded model. It adds no models, it only says what the rows stand for.
+          const live = listed.find((m) => !m.aliasOf)
+          this.setServed(p, live?.id, live?.nCtx)
+          out.push({ provider: p.id, found: live ? 1 : 0 })
+          continue
+        }
         if (p.discover === 'free') {
           const found = new Set<string>()
           for (const m of listed) {
@@ -405,6 +480,11 @@ export class ModelRegistry {
     if (!p) throw new Error(`no provider "${providerId}"`)
     if (!p.available) throw new Error(p.unavailableReason ?? 'not available')
     if (!(p.client instanceof OpenAiCompatClient)) throw new Error(`a ${p.kind} provider can't list its models: add them to providers.md`)
+    // its `loaded` rows are the whole list: the loaded model is not a model to pick
+    if (p.followsServed) {
+      this.catalogs.set(providerId, [])
+      return []
+    }
     const listed = (await p.client.listModelInfo(signal)).filter((m) => m.textOnly && !/embed/i.test(m.id) && !skipsDiscovered(p, m.id))
     this.catalogs.set(providerId, listed)
     return listed
@@ -419,12 +499,14 @@ export class ModelRegistry {
    * Asks every `concurrency: auto` provider how many requests it serves at once and sets its `concurrency`:
    * Strata reports it as `concurrency.serving` of `GET <base_url>/status`; for LM Studio it is the sum of `parallel`
    * over the loaded chat models (`GET /api/v1/models`). A server that can't be asked counts as 1.
-   * Returns the providers whose concurrency changed.
+   * A provider with `loaded` rows also takes the loaded model from the same answer (`model` of Strata's `/status`) and re-applies its profiles.
+   * Returns the providers whose concurrency changed (`slots`) and the ones whose loaded model changed (`served`).
    */
-  async syncServerSlots(signal?: AbortSignal): Promise<{ provider: ProviderInfo; from: number; to: number }[]> {
+  async syncServerSlots(signal?: AbortSignal): Promise<{ slots: { provider: ProviderInfo; from: number; to: number }[]; served: { provider: ProviderInfo; from?: string; to: string }[] }> {
     const changed: { provider: ProviderInfo; from: number; to: number }[] = []
+    const served: { provider: ProviderInfo; from?: string; to: string }[] = []
     for (const p of this.providers.values()) {
-      if (!p.concurrencyAuto || !p.available || !p.baseUrl) continue
+      if ((!p.concurrencyAuto && !p.followsServed) || !p.available || !p.baseUrl) continue
       const base = p.baseUrl.replace(/\/+$/, '')
       const get = async (url: string) => {
         const res = await (this.opts.fetchImpl ?? fetch)(url, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(3000)]) : AbortSignal.timeout(3000) })
@@ -434,6 +516,12 @@ export class ModelRegistry {
       let context: number | undefined
       try {
         const status = await get(`${base}/status`).catch(() => null)
+        // the server answered: the model it runs. No answer (down, restarting) leaves L as it was.
+        if (p.followsServed && typeof status?.model === 'string' && status.model) {
+          const change = this.setServed(p, status.model, this.servedCtx.get(p.id))
+          if (change) served.push(change)
+        }
+        if (!p.concurrencyAuto) continue
         const n = Number((status?.concurrency as { serving?: unknown } | undefined)?.serving)
         if (Number.isInteger(n) && n >= 1) slots = Math.min(n, 16)
         const ctx = Number((status?.context as { native?: unknown } | undefined)?.native)
@@ -455,6 +543,7 @@ export class ModelRegistry {
       } catch {
         /* the server is down or restarting: one at a time until it answers */
       }
+      if (!p.concurrencyAuto) continue
       this.serverSlots.set(p.id, slots)
       if (context) this.serverContexts.set(p.id, context)
       else this.serverContexts.delete(p.id)
@@ -464,7 +553,7 @@ export class ModelRegistry {
         p.concurrency = slots
       }
     }
-    return changed
+    return { slots: changed, served }
   }
 
   getModel(ref: string): ModelInfo | undefined {
@@ -494,13 +583,27 @@ export class ModelRegistry {
 
   /** A `provider/model`, or an alias from roles.md resolved to its model. */
   resolve(ref: string): string {
-    return this.roles.aliases[ref] ?? ref
+    const r = this.roles.aliases[ref] ?? ref
+    // an old ref of a `loaded` row (`strata/qwen3.8-flash-next`) is that row
+    return this.models.has(r) ? r : (this.legacyRefs.get(r) ?? r)
   }
 
   /** Model refs in the roles file for a role, in order, with aliases resolved. */
   roleModelRefs(role: string): string[] {
     return (this.roles.roles[role]?.models ?? []).map((r) => this.resolve(r))
   }
+}
+
+/** The profile for the model id L: the one with exactly that id (any case), else the longest profile id L starts with. */
+export function findProfile(profiles: ProviderProfile[], L: string): ProviderProfile | undefined {
+  const s = L.toLowerCase()
+  let best: ProviderProfile | undefined
+  for (const k of profiles) {
+    const id = k.id.toLowerCase()
+    if (id === s) return k
+    if (s.startsWith(id) && (!best || id.length > best.id.length)) best = k
+  }
+  return best
 }
 
 /** A model the server lists but `discover_skip` keeps out (a word of it is in the id, any case). */

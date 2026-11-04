@@ -73,7 +73,7 @@ describe('seed config', () => {
     expect(router.candidates('theory').map((m) => m.ref)).toEqual(['lmstudio/ista-daslab-qwen3.8-27b-gsq-rco-unsloth-mtp'])
     // no key: a picked cloud model is dropped
     expect(router.candidates('composer', { agentModel: 'cloud' }).map((m) => m.ref)).toEqual(['lmstudio/ista-daslab-qwen3.8-27b-gsq-rco-unsloth-mtp'])
-    expect(router.candidates('composer', { agentModel: 'strata/qwen3.8-flash-next-low' })[0]!.ref).toBe('strata/qwen3.8-flash-next-low')
+    expect(router.candidates('composer', { agentModel: 'strata/qwen3.8-flash-next-low' })[0]!.ref).toBe('strata/default-low') // the old ref resolves to the loaded row
     expect(registry.loadConfigFor('lmstudio', 'nail-qwen3.6-35b-a3b-mtp')).toEqual({ parallel: 1, context: 131072, ttlMinutes: 60 })
     expect(registry.lmContext).toEqual({ effective: 131072, fromConfig: 131072 })
     // the context size from Settings replaces providers.md's for every LM Studio model, also over a model's own load_context
@@ -189,6 +189,54 @@ describe('discovery', () => {
     await registry.discover()
     expect(lmRefs()).toEqual(['lm/gone'])
     expect(registry.getModel('lm/gone')).toMatchObject({ discovered: false, tools: true })
+  })
+})
+
+describe('loaded rows (Strata): they follow the model the server runs', () => {
+  const strata =
+    '  - id: strata\n    kind: openai-compat\n    local: true\n    base_url: http://s.test/v1\n    concurrency: auto\n    discover: true\n    json_schema: false\n' +
+    '    models:\n      - id: default\n        loaded: true\n        aliases: [qwen3.8-flash-next]\n        context: 1000\n        tools: true\n        extra_body: { reasoning_effort: none }\n' +
+    '      - id: default-low\n        loaded: true\n        aliases: [qwen3.8-flash-next-low]\n        tools: true\n        extra_body: { reasoning_effort: low }\n' +
+    '    profiles:\n      - id: qwen3.8-flash-next\n        family: qwen\n        context: 131072\n      - id: deepseek-v4.1-flash\n        family: deepseek\n        context: 131072\n        extra_body: { thinking: { type: disabled } }\n        vision: true'
+
+  it('takes family, context, extra_body, tools and vision from the profile of the served model, switches in place, keeps it while down, resolves old refs, adds no models', async () => {
+    let served: string | null = 'deepseek-v4.1-flash'
+    const fetchImpl = (async (url: string) => {
+      if (served === null) throw new TypeError('fetch failed')
+      const u = String(url)
+      if (u.endsWith('/status')) return new Response(JSON.stringify({ model: served, concurrency: { serving: 4 }, context: { native: 131072 } }))
+      if (u.endsWith('/v1/models')) return new Response(JSON.stringify({ data: [{ id: served, meta: { n_ctx: 65536 } }, { id: 'default', alias_of: served }] }))
+      return new Response('', { status: 404 })
+    }) as unknown as typeof fetch
+    const registry = await registryFor(strata, '  r:\n    models: [strata/default]', '  strata: strata/qwen3.8-flash-next', { fetchImpl })
+    const def = registry.getModel('strata/default')!
+    const low = registry.getModel('strata/default-low')!
+    // before Strata has answered: the rows' own values
+    expect(def).toMatchObject({ servedId: undefined, family: 'unknown', context: 1000, extraBody: { reasoning_effort: 'none' } })
+
+    expect(await registry.discover()).toEqual([{ provider: 'strata', found: 1 }])
+    // a loaded row survives the list of installed models, and nothing is added for the real id or the alias entry
+    expect(registry.listModels().map((m) => m.ref).sort()).toEqual(['strata/default', 'strata/default-low'])
+    expect(def).toMatchObject({ servedId: 'deepseek-v4.1-flash', family: 'deepseek', context: 131072, tools: true, vision: true, extraBody: { thinking: { type: 'disabled' }, reasoning_effort: 'none' } })
+    expect(low.extraBody).toEqual({ thinking: { type: 'disabled' }, reasoning_effort: 'low' })
+
+    // the old refs and the roles alias reach the same objects
+    expect(registry.getModel('strata/qwen3.8-flash-next-low')).toBe(low)
+    expect(registry.getModel('strata')).toBe(def)
+
+    // a switch: same objects, prefix profile; a status check reports it
+    served = 'qwen3.8-flash-next-iq3_s'
+    const sync = await registry.syncServerSlots()
+    expect(sync.served).toMatchObject([{ from: 'deepseek-v4.1-flash', to: 'qwen3.8-flash-next-iq3_s' }])
+    expect(registry.getModel('strata/default')).toBe(def)
+    expect(def).toMatchObject({ servedId: 'qwen3.8-flash-next-iq3_s', family: 'qwen', vision: false, extraBody: { reasoning_effort: 'none' } })
+
+    // down: the served model and its settings stay, one request at a time; a config reload keeps them too
+    served = null
+    expect((await registry.syncServerSlots()).served).toEqual([])
+    expect(registry.providers.get('strata')).toMatchObject({ concurrency: 1, servedModel: 'qwen3.8-flash-next-iq3_s' })
+    await registry.load()
+    expect(registry.getModel('strata/default')).toMatchObject({ servedId: 'qwen3.8-flash-next-iq3_s', family: 'qwen' })
   })
 })
 

@@ -40,20 +40,29 @@ providers:
     local: true
     base_url: http://127.0.0.1:8080/v1
     api_key_env: STRATA_API_KEY   # optional: only sent if set
-    concurrency: auto             # as many as the running Strata serves (its /status): 4 or 1, by the script you started
-    discover: false               # Strata answers any model name, so fixed ids keep roles.md the same across quants
+    concurrency: auto             # as many as the running Strata serves (its /v1/status)
+    discover: true                # ask Strata which model it runs (GET /v1/models, and `model` of /v1/status)
     json_schema: false            # Strata fails a bad structured answer (502) instead of constraining it
-    models:
-      - id: qwen3.8-flash-next
-        family: qwen
-        context: 131072
+    models:                       # the refs roles use; each stands for whatever model Strata has loaded
+      - id: default               # thinking off
+        loaded: true
+        aliases: [qwen3.8-flash-next]
+        context: 131072           # used until Strata has answered once
         tools: true
         extra_body: { reasoning_effort: none }
-      - id: qwen3.8-flash-next-low
-        family: qwen
+      - id: default-low           # thinking on low, for the checks
+        loaded: true
+        aliases: [qwen3.8-flash-next-low]
         context: 131072
         tools: true
         extra_body: { reasoning_effort: low }
+    profiles:                     # settings per model Strata may run, matched by id prefix; not refs, not in pickers
+      - id: qwen3.8-flash-next    # matches qwen3.8-flash-next-iq3_s and qwen3.8-flash-next-unsloth-ud-iq4_xs
+        family: qwen
+        context: 131072
+      - id: deepseek-v4.1-flash
+        family: deepseek
+        context: 131072
   - id: deepseek
     kind: openai-compat
     base_url: https://api.deepseek.com
@@ -239,6 +248,12 @@ Settings > Models > Add provider adds any OpenAI-compatible server (name, base U
 - `vision`: the model can look at images. The agent then gets the `render_preview` images of its own work, and the style reference images. Default `false`: images are replaced by a text note.
 - `extra_body`: JSON fields merged into the request body. The LM Studio models send `reasoning_effort` to limit thinking. DeepSeek `deepseek-flash` sends `thinking: { type: disabled }` (with thinking on it spends the answer budget on reasoning). Empty means nothing extra.
 - `load_context`, `load_parallel` (LM Studio): this model's own load settings.
+- `json_schema`: this model's own setting, over the provider's.
+- `loaded: true` (Strata): the row stands for whichever model the server has loaded, see Strata below. `aliases`: other names the row answers to (old refs such as `strata/qwen3.8-flash-next`); they are not listed as models.
+
+## Strata
+
+Strata serves one model per process on port 8080, chosen by the `run-*.bat` you start in `D:\Strata`: `run-iq3_s.bat`, `run-iq3_s-solo.bat`, `run-iq3_s-parallel.bat`, `run-unsloth-ud-iq4_xs.bat` (Qwen3.8-Flash-Next) and `run-deepseek-v4.1-flash-ist-das-2.00bpw.bat`, `run-deepseek-v4.1-flash-ista-das-coder.bat` (DeepSeek-V4.1-Flash). Pixel Studio asks it which one it runs (`model` of `/v1/status`, `/v1/models`) and takes the settings from `profiles`: the entry whose `id` is the model's id, else the longest one the id starts with (`family`, `context`, `extra_body`, `tools`, `vision`, `json_schema`, `max_output`). The two `loaded` rows, `strata/default` (thinking off) and `strata/default-low` (thinking low), follow it, so `roles.md` never names a model; the chat shows `Strata: <model>`. A row's own `extra_body` wins over the profile's, and `context` in a profile must match the `--max-context` of the config (131072 for all six now). When you install a new model, add a profile for it. Strata takes most of the GPU memory with any of them: keep only the nomic embedding model in LM Studio and no ComfyUI while it runs.
 
 ## Local models with tools
 

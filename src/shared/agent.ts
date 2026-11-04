@@ -123,7 +123,10 @@ export interface LlmModelInfo {
   ref: string
   provider: string
   id: string
+  /** What the pickers show: the id, or for a `loaded` row the model the server really runs (`Strata: deepseek-v4.1-flash, thinking low`). */
   label: string
+  /** A `loaded` row: the model id the server runs; missing until it has answered. */
+  served?: string
   tools: boolean
   vision: boolean
   local: boolean

@@ -51,6 +51,8 @@ export interface ChatRequest {
   signal?: AbortSignal
   /** Extra JSON fields merged into the request body (per-model `extra_body`). */
   extraBody?: Record<string, unknown> | null
+  /** This model's own `json_schema` setting; over the provider's. */
+  jsonSchema?: boolean
   meta?: RequestMeta
 }
 

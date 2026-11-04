@@ -132,7 +132,7 @@ export function ChatPanel() {
             <optgroup key={g.provider} label={g.provider}>
               {g.models.map((m) => (
                 <option key={m.ref} value={m.ref} disabled={!m.available} title={m.unavailableReason}>
-                  {m.id}
+                  {m.label}
                   {m.available ? '' : ' (unavailable)'}
                 </option>
               ))}

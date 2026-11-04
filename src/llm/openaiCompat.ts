@@ -138,7 +138,7 @@ export class OpenAiCompatClient implements ProviderClient {
       body.tools = req.tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }))
       if (req.toolChoice) body.tool_choice = toOpenAiToolChoice(req.toolChoice)
     }
-    if (req.schema && this.opts.jsonSchema !== false && !req.tools?.length) {
+    if (req.schema && (req.jsonSchema ?? this.opts.jsonSchema) !== false && !req.tools?.length) {
       body.response_format = { type: 'json_schema', json_schema: { name: 'result', strict: true, schema: req.schema } }
     }
     const signal = withTimeout(req.signal, this.opts.timeoutMs ?? 15 * 60_000)
@@ -342,6 +342,10 @@ interface OpenAiModelEntry {
   pricing?: { prompt?: string; completion?: string; input_cache_read?: string } | null
   architecture?: { input_modalities?: string[]; output_modalities?: string[] } | null
   supported_parameters?: string[] | null
+  /** Strata: this entry is a name for the loaded model. */
+  alias_of?: string
+  /** Strata: the loaded model's context window. */
+  meta?: { n_ctx?: number } | null
 }
 
 export interface ListedModel {
@@ -356,6 +360,10 @@ export interface ListedModel {
   tools?: boolean
   /** Takes images (`architecture.input_modalities` has `image`); undefined when the server doesn't say. */
   vision?: boolean
+  /** Strata: the id this entry is a name for. Entries without it are the loaded model itself. */
+  aliasOf?: string
+  /** Strata: the context window of the loaded model (`meta.n_ctx`). */
+  nCtx?: number
 }
 
 function listedModel(m: OpenAiModelEntry): ListedModel {
@@ -372,7 +380,9 @@ function listedModel(m: OpenAiModelEntry): ListedModel {
     price: pIn !== undefined && pOut !== undefined && pIn >= 0 && pOut >= 0 ? { in: pIn, out: pOut, cachedIn: perM(m.pricing?.input_cache_read) } : undefined,
     textOnly: !out || (out.length === 1 && out[0] === 'text'),
     tools: Array.isArray(m.supported_parameters) ? m.supported_parameters.includes('tools') : undefined,
-    vision: Array.isArray(inp) ? inp.includes('image') : undefined
+    vision: Array.isArray(inp) ? inp.includes('image') : undefined,
+    aliasOf: typeof m.alias_of === 'string' && m.alias_of ? m.alias_of : undefined,
+    nCtx: typeof m.meta?.n_ctx === 'number' && m.meta.n_ctx > 0 ? m.meta.n_ctx : undefined
   }
 }
 

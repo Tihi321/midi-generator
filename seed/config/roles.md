@@ -3,7 +3,8 @@ kind: roles
 # Names that stand for a provider/model, usable in the role lists below. Change one here and every role that uses it follows.
 aliases:
   lmstudio: lmstudio/ista-daslab-qwen3.8-27b-gsq-rco-unsloth-mtp
-  strata: strata/qwen3.8-flash-next
+  strata: strata/default
+  strata-low: strata/default-low
   cloud: deepseek/deepseek-flash
   claude: anthropic/claude-sonnet-5-5
 roles:
