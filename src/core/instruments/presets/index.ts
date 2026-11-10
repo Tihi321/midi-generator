@@ -11,6 +11,7 @@ import { SNES_PRESETS } from './snes'
 import { PCE_PRESETS } from './pce'
 import { PS1_PRESETS } from './ps1'
 import { DREAMCAST_PRESETS } from './dreamcast'
+import { GM_PRESETS } from './gm'
 import { GENESIS_SAMPLE_PRESETS, NES_SAMPLE_PRESETS } from './samples'
 import type { Preset } from './types'
 
@@ -24,6 +25,7 @@ export { PCE_PRESETS, PCE_WAVES } from './pce'
 export { PS1_PRESETS, psxAttackSeconds, psxDecayTauSec, psxReleaseTauSec, psxSustainTauSec, snesToPsxAdsr } from './ps1'
 export { DREAMCAST_PRESETS, aicaAttackSeconds, aicaFallSeconds, snesToAicaAeg } from './dreamcast'
 export { GENESIS_SAMPLE_PRESETS, NES_SAMPLE_PRESETS } from './samples'
+export { GM_PRESETS } from './gm'
 
 export const PRESET_BANKS: Record<ChipId, Preset[]> = {
   nes: [...NES_PRESETS, ...NES_SAMPLE_PRESETS],
@@ -32,7 +34,8 @@ export const PRESET_BANKS: Record<ChipId, Preset[]> = {
   snes: SNES_PRESETS,
   pce: PCE_PRESETS,
   ps1: PS1_PRESETS,
-  dreamcast: DREAMCAST_PRESETS
+  dreamcast: DREAMCAST_PRESETS,
+  gm: GM_PRESETS
 }
 
 export function listPresets(chip: ChipId, filter: { role?: Role; channelKind?: ChannelKind } = {}): Preset[] {

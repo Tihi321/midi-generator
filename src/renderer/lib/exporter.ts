@@ -66,6 +66,8 @@ export function auxStemIds(song: Song): string[] {
       return ['_reverb']
     case 'dreamcast':
       return ['_dsp']
+    case 'gm':
+      return ['_gm']
     default:
       return []
   }

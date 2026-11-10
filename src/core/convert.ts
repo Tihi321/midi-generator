@@ -76,7 +76,7 @@ function roleOfInstrument(inst: Instrument | undefined, kind: ChannelKind): Role
 /** Note a drum hit plays on a target channel of this kind (noise/sample channels ignore pitch; pitched ones need a sensible one). */
 function drumNoteFor(role: Role, kind: ChannelKind): number {
   if (kind === 'triangle') return defaultDrumNote(role, kind)
-  if (kind === 'noise' || kind === 'psg-noise' || kind === 'dpcm' || kind === 'sample' || kind === 'pce-wave') return 60
+  if (kind === 'noise' || kind === 'psg-noise' || kind === 'dpcm' || kind === 'sample' || kind === 'pce-wave' || kind === 'gm-drums') return 60
   return role === 'kick' ? 36 : role === 'tom' ? 48 : 60
 }
 

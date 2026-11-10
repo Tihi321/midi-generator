@@ -2,9 +2,9 @@
 // and keep several songs per session. Every result ends with one JSON text item (see docs/llm-guide.md).
 
 import { z } from 'zod'
-import { parseProject, serializeProject } from '../../core'
+import { GM_DEFAULT_SOUNDFONT, SOUNDFONT_MISSING_MESSAGE, SOUNDFONT_URL, hasSoundFont, parseProject, serializeProject } from '../../core'
 import { exportWithSidecar, renderSongToFile } from '../audioExport'
-import { composeSong } from '../composer'
+import { FORMS, TEXTURE_IDS, composeSong } from '../composer'
 import { SFX_SOUNDS, composeSfx } from '../sfx'
 import { defineTool } from '../registry'
 import type { ExportTarget } from '../session'
@@ -23,10 +23,10 @@ export const studioTools = [
     name: 'compose_track',
     group: 'song',
     description:
-      'Compose a whole track in one call and open it as the current song (the song that was open is kept: list_songs, open_song). A procedural composer (chord progression, bass, pads, melody, optional drums) built on the mood recipes, so you get a finished loop to render with render_audio, or to refine with write_pattern / write_melody. Deterministic: the same seed and arguments give the same song. Calm moods ("ambient", "lullaby", "peaceful", "mysterious-calm") use soft presets, slow tempo and no or very sparse drums. The synth moods "synthwave", "outrun", "darkwave" and "dreamwave" (aliases retrowave, chase, coldwave, chillwave) use the synthwave presets (detuned saw lead, supersaw pads, analog bass, 16th arpeggio, gated snare and a LinnDrum-style kit; PS1 and Dreamcast also get a lead double, three pad voices and, for outrun, brass stabs) and default to PS1 (synthwave, darkwave) and Dreamcast (outrun, dreamwave); on the other chips they use the chip\'s role presets. With loop true (default) the loop covers the whole song and ends exactly at the song end. With intro 1..4 a quiet intro (pads and bass on the tonic, no lead, no drums) plays once before the loop: bars / seconds are the loop body, the loop starts after the intro, and render_audio reports that as loopStartSec. With motif (the write_melody text format, at most 4 bars, e.g. "E5:4 G5:2 A5:2 B5:8") that leitmotif is the lead line of every even 4-bar phrase, transposed from motifKey to the track key and fitted to the scale; later repeats are lightly developed, the other phrases stay generated. With variation 1..99 you get a different arrangement of the same track (same seed and arguments): same key, scale, tempo, chords, instruments and motif, but other lead rhythms and notes, bass pattern, pad voicing and drum fills; 0 (default) is the original, so one theme can serve several scenes. Returns songId, chip, bpm, key, scale, bars, introBars, variation, motif ({bars, transposeSemis, placedAtBars} or null), seed, durationSec and loop as JSON. Examples: {"mood":"ambient","chip":"snes","seed":1}, {"mood":"synthwave","seed":1} (PS1), {"mood":"outrun","chip":"dreamcast","seed":1,"intro":2,"instruments":{"V2":"dreamcast.lead.sync"}}.',
+      'Compose a whole track in one call and open it as the current song (the song that was open is kept: list_songs, open_song). A procedural composer (chord progression, bass, pads, melody, optional drums) built on the mood recipes, so you get a finished loop to render with render_audio, or to refine with write_pattern / write_melody. Deterministic: the same seed and arguments give the same song. Calm moods ("ambient", "lullaby", "peaceful", "mysterious-calm") use soft presets, slow tempo and no or very sparse drums. The synth moods "synthwave", "outrun", "darkwave" and "dreamwave" (aliases retrowave, chase, coldwave, chillwave) use the synthwave presets (detuned saw lead, supersaw pads, analog bass, 16th arpeggio, gated snare and a LinnDrum-style kit; PS1 and Dreamcast also get a lead double, three pad voices and, for outrun, brass stabs) and default to PS1 (synthwave, darkwave) and Dreamcast (outrun, dreamwave); on the other chips they use the chip\'s role presets. With loop true (default) the loop covers the whole song and ends exactly at the song end. With intro 1..4 a quiet intro (pads and bass on the tonic, no lead, no drums) plays once before the loop: bars / seconds are the loop body, the loop starts after the intro, and render_audio reports that as loopStartSec. With motif (the write_melody text format, at most 4 bars, e.g. "E5:4 G5:2 A5:2 B5:8") that leitmotif is the lead line of every even 4-bar phrase, transposed from motifKey to the track key and fitted to the scale; later repeats are lightly developed, the other phrases stay generated. With variation 1..99 you get a different arrangement of the same track (same seed and arguments): same key, scale, tempo, chords, instruments and motif, but other lead rhythms and notes, bass pattern, pad voicing and drum fills; 0 (default) is the original, so one theme can serve several scenes. Returns songId, chip, bpm, key, scale, bars, introBars, variation, motif ({bars, transposeSemis, placedAtBars} or null), seed, durationSec and loop as JSON. The kids and learning moods playful, curious, focus, wonder, cafe, adventure-light and storybook suit chip "gm" best (texture, palette and form pick the arrangement and instruments there; avoid keeps the tracks of one work apart). The result always has a fingerprint {texture, lead, pad, bass, bpm, key, scale, form} to pass in avoid of the next track, and a warning when an option was ignored or the avoid rule could not be met. Examples: {"mood":"ambient","chip":"snes","seed":1}, {"mood":"storybook","chip":"gm","seed":1,"texture":"broken-chord","form":"AB"}, {"mood":"synthwave","seed":1} (PS1), {"mood":"outrun","chip":"dreamcast","seed":1,"intro":2,"instruments":{"V2":"dreamcast.lead.sync"}}.',
     input: obj({
       mood: z.string().min(1).describe('Mood id or alias (get_mood_recipe lists them): ambient, lullaby, peaceful, mysterious-calm, chill, heroic, synthwave, outrun, darkwave, dreamwave, ...'),
-      chip: z.string().optional().describe('Chip: nes, gb, genesis, snes, pce, ps1, dreamcast. Default depends on the mood: PS1 for synthwave and darkwave, Dreamcast for outrun and dreamwave, SNES for calm moods (and title, underwater), Genesis for chill, shop and castle, NES otherwise.'),
+      chip: z.string().optional().describe('Chip: nes, gb, genesis, snes, pce, ps1, dreamcast, gm (real General MIDI instruments from the SoundFont file; see soundfont_status). Default depends on the mood: PS1 for synthwave and darkwave, Dreamcast for outrun and dreamwave, SNES for calm moods (and title, underwater), Genesis for chill, shop and castle, NES otherwise.'),
       bpm: z.number().min(20).max(400).optional().describe('Tempo. Default: a seeded pick inside the mood recipe\'s range (60-90 for calm moods).'),
       key: z.string().min(1).optional().describe('Key tonic, e.g. "C", "F#", "Bb". Default: a seeded pick from the mood recipe.'),
       scale: z.string().min(1).optional().describe('Scale id (list_chips / get_mood_recipe), e.g. "major", "dorian", "lydian". Default: a seeded pick from the mood recipe.'),
@@ -39,17 +39,25 @@ export const studioTools = [
       loop: z.boolean().optional().describe('Loop the whole song (default true). false = a one-shot piece.'),
       seed: z.number().int().min(0).max(4294967295).optional().describe('Random seed (default: random; the used seed is returned). Same seed + same arguments = same song.'),
       instruments: z.record(z.string(), z.string()).optional().describe('Channel id -> preset id or role, e.g. {"V4":"snes.flute.soft"} or {"V2":"ps1.lead.sync"}. Default: soft presets for calm moods, the synthwave presets for the synth moods on PS1 and Dreamcast, role presets otherwise.'),
-      name: z.string().min(1).optional().describe('Song name (default "<Mood> (<CHIP>)").')
+      name: z.string().min(1).optional().describe('Song name (default "<Mood> (<CHIP>)").'),
+      texture: z.string().min(1).optional().describe(`How the harmony and bass are played (gm chip only): ${TEXTURE_IDS.join(', ')}. Default: a seeded pick that suits the palette.`),
+      form: z.enum(FORMS as unknown as [string, ...string[]]).optional().describe('Song form over the body: "A", "AB", "ABA" or "AABA". B plays a second progression (and its own phrase rhythms). Default: "A"; on the gm chip a seeded pick. Needs 8+ bars (16+ with two bars per chord) or A is used.'),
+      palette: z.string().min(1).optional().describe('Instrument palette (gm chip only): the lead, pads, bass and accompaniment of the track, e.g. "music-box", "bassoon-pizz", "vibes-cafe", "horn-adventure". Default: a seeded pick for the mood. An unknown id lists them.'),
+      avoid: z.array(z.strictObject({
+        texture: z.string(), lead: z.string(), pad: z.string(), bass: z.string(), bpm: z.number(), key: z.string(), scale: z.string().optional(), form: z.string().optional()
+      })).max(64).optional().describe('The fingerprints (from earlier compose_track results) of the tracks already made for the same work. This track then gets another texture and lead, a tempo 8+ BPM from theirs and another key than the last one; when that cannot be met the result has a warning.')
     }),
     handler: (args, ctx) => {
       const session = songSession(ctx)
       const seed = args.seed ?? Math.floor(Math.random() * 2 ** 31)
-      const r = composeSong({ ...args, seed })
+      const r = composeSong({ ...args, seed, avoid: args.avoid?.map((f) => ({ texture: f.texture, lead: f.lead, pad: f.pad, bass: f.bass, bpm: f.bpm, key: f.key, scale: f.scale ?? '', form: (FORMS as readonly string[]).includes(f.form ?? '') ? (f.form as (typeof FORMS)[number]) : 'A' })) })
       activateSong(session, r.song, null, `Compose ${r.mood}`)
       const text = [
         `Composed "${r.song.name}": ${r.chip.toUpperCase()}, ${r.bpm} BPM, ${r.key} ${r.scale}, mood ${r.mood}, ${r.bars} bars${r.introBars ? ` + ${r.introBars} intro` : ''} = ${r.durationSec.toFixed(1)} s, seed ${seed}${r.variation ? `, variation ${r.variation}` : ''}.`,
         `Chords (progression ${r.progression}, ${r.chords.length} chord slots): ${r.chords.join(' ')}.`,
         `Parts: ${r.parts.join('; ')}.`,
+        `Fingerprint: texture ${r.fingerprint.texture}, form ${r.fingerprint.form}, lead ${r.fingerprint.lead || '-'}, pad ${r.fingerprint.pad || '-'}, bass ${r.fingerprint.bass || '-'}${r.palette ? ` (palette ${r.palette})` : ''}.`,
+        r.warning ? `Warning: ${r.warning}` : '',
         r.motif ? `Motif (${r.motif.bars} bar${r.motif.bars === 1 ? '' : 's'}, transposed ${r.motif.transposeSemis} semitones) plays at loop bars ${r.motif.placedAtBars.join(', ')}; the other phrases are generated.` : '',
         r.loop
           ? `Loops over bars ${r.loop.startBar}..${r.loop.endBar}; the loop ends exactly at the song end.${r.introBars ? ` The ${r.introBars}-bar intro plays once: render_audio's loopStartSec is the intro end.` : ''}`
@@ -71,7 +79,10 @@ export const studioTools = [
         seed,
         durationSec: r.durationSec,
         loop: r.loop,
-        channels: r.channels
+        channels: r.channels,
+        fingerprint: r.fingerprint,
+        palette: r.palette,
+        ...(r.warning ? { warning: r.warning } : {})
       })
     }
   }),
@@ -136,6 +147,31 @@ export const studioTools = [
         r.path
       ].join('\n')
       return okJson(text, { ...r })
+    }
+  }),
+
+  defineTool({
+    name: 'soundfont_status',
+    group: 'export',
+    readOnly: true,
+    description:
+      `Check the SoundFont file the gm chip plays (GeneralUser GS, ~/ChiptuneStudio/soundfonts/${GM_DEFAULT_SOUNDFONT}; CHIPTUNE_STUDIO_HOME is respected). Returns state "present" (with the file size, the SoundFont's name and its preset count), "missing" (not downloaded: the message gives the exact path and the download address ${SOUNDFONT_URL}) or "invalid" (a file that is not a readable .sf2). Call it before compose_track / render_audio with chip "gm"; the other chips need no file. Example: {}.`,
+    input: obj({
+      file: z.string().min(1).optional().describe(`SoundFont file name in the soundfonts folder (default ${GM_DEFAULT_SOUNDFONT}).`)
+    }),
+    handler: async (args, ctx) => {
+      const file = args.file ?? GM_DEFAULT_SOUNDFONT
+      const s = ctx.services.soundfont
+        ? await ctx.services.soundfont.status(file)
+        : hasSoundFont()
+          ? { state: 'present' as const, file, path: '(loaded by the host)', url: SOUNDFONT_URL }
+          : { state: 'missing' as const, file, path: '(no SoundFont service)', url: SOUNDFONT_URL, message: SOUNDFONT_MISSING_MESSAGE }
+      const kb = s.sizeBytes !== undefined ? ` ${(s.sizeBytes / 1048576).toFixed(1)} MB` : ''
+      const text =
+        s.state === 'present'
+          ? `SoundFont ${s.file}: present${kb}${s.title ? `, "${s.title}"` : ''}${s.presets !== undefined ? `, ${s.presets} presets` : ''} at ${s.path}. The gm chip is ready.`
+          : `SoundFont ${s.file}: ${s.state}. ${s.message ?? ''}`.trim()
+      return okJson(text, { ...s })
     }
   }),
 

@@ -78,6 +78,31 @@ export interface StudioHost {
   songSaved(path: string): void | Promise<void>
 }
 
+/** State of a SoundFont file in the data folder's soundfonts folder (the gm chip needs one). */
+export interface SoundFontStatus {
+  /** present = loadable; missing = no file; invalid = a file that is not a readable .sf2. */
+  state: 'present' | 'missing' | 'invalid'
+  /** File name looked for (chipConfig.soundfont, default GeneralUser-GS.sf2). */
+  file: string
+  /** Full path where the file is (or should be). */
+  path: string
+  url: string
+  sizeBytes?: number
+  /** Name inside the SoundFont (present only). */
+  title?: string
+  presets?: number
+  drumKits?: number
+  /** Why it is not usable, or how to fix it. */
+  message?: string
+}
+
+/** The SoundFont file for the gm chip: read from the data folder in main / headless, over IPC in the app window. */
+export interface SoundFontService {
+  status(file?: string): Promise<SoundFontStatus>
+  /** The file bytes (the same object while the file is unchanged). Rejects with the path and download address when missing. */
+  load(file?: string): Promise<Uint8Array>
+}
+
 export interface ToolServices {
   /** Write a file (creating parent folders). Text is UTF-8. Rejects when the path is not allowed. */
   writeFile(path: string, data: Uint8Array | string): Promise<void>
@@ -99,6 +124,8 @@ export interface ToolServices {
    * the path and says so in `warning`. Absent where nothing can encode: render_audio then writes a WAV and warns.
    */
   encodeAudio?(wav: Uint8Array, path: string, format: AudioFormat): Promise<EncodeResult>
+  /** The gm chip's SoundFont file. Absent where there is none (tests): gm then needs setSoundFont() called by the host. */
+  soundfont?: SoundFontService
   studio?: StudioHost
 }
 

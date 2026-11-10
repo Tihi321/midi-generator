@@ -7,7 +7,7 @@
 //
 // Imports only core/synth (no zod, no theory data) to keep this bundle small.
 
-import { SongPlayer } from '../../core/synth'
+import { SongPlayer, setSoundFont } from '../../core/synth'
 import { type FromWorklet, type ToWorklet, POSITION_HZ, WORKLET_NAME } from './protocol'
 
 // AudioWorkletGlobalScope globals (not in the DOM lib).
@@ -93,6 +93,9 @@ class SongProcessor extends AudioWorkletProcessor {
         break
       case 'stopAudition':
         this.audition = null
+        break
+      case 'soundfont':
+        setSoundFont(m.bytes)
         break
     }
   }

@@ -121,9 +121,17 @@ export const ROLE_CHANNELS: Record<ChipId, Partial<Record<Role, string[]>>> = {
     bass: ['V1'], lead: ['V2', 'V3'], pad: ['V4', 'V5', 'V6'], strings: ['V5', 'V4'], choir: ['V6'], organ: ['V5'], arp: ['V7'],
     pluck: ['V8', 'V7'], bell: ['V9'], brass: ['V10', 'V2'], flute: ['V2'], sfx: ['V11'], tom: ['V12'], kick: ['V13'],
     snare: ['V14'], clap: ['V14'], hihat: ['V15'], openhat: ['V15'], crash: ['V16']
+  },
+  // gm: M1..M12 melodic, D1..D4 percussion (all MIDI channel 10)
+  gm: {
+    lead: ['M1', 'M5'], flute: ['M1', 'M5'], bass: ['M2'], pad: ['M3', 'M4'], strings: ['M3', 'M4'], choir: ['M4', 'M3'], organ: ['M3', 'M4'],
+    brass: ['M6', 'M1'], pluck: ['M7', 'M8'], bell: ['M8', 'M7'], arp: ['M7', 'M8'], sfx: ['M12'],
+    kick: ['D1'], tom: ['D1', 'D3'], snare: ['D2'], clap: ['D2'], hihat: ['D3'], openhat: ['D3'], crash: ['D4']
   }
 }
 
+const GM_MELODIC_KINDS: ChannelKind[] = ['gm-melodic']
+const GM_DRUM_KINDS: ChannelKind[] = ['gm-drums']
 const SAMPLE_ROLE_KINDS: Partial<Record<Role, ChannelKind[]>> = { lead: ['sample'], bass: ['sample'], pad: ['sample'], kick: ['sample'], snare: ['sample'], hihat: ['sample'], openhat: ['sample'], crash: ['sample'], clap: ['sample'], tom: ['sample'], arp: ['sample'] }
 
 /** Channel kinds that play a role by default on a chip, most preferred first. */
@@ -134,7 +142,11 @@ export const ROLE_CHANNEL_KINDS: Record<ChipId, Partial<Record<Role, ChannelKind
   snes: { lead: ['sample'], bass: ['sample'], pad: ['sample'], kick: ['sample'], snare: ['sample'], hihat: ['sample'], openhat: ['sample'], crash: ['sample'], clap: ['sample'], tom: ['sample'], arp: ['sample'] },
   pce: { lead: ['pce-wave'], bass: ['pce-wave'], pad: ['pce-wave'], kick: ['pce-wave'], snare: ['pce-wave'], hihat: ['pce-wave'], openhat: ['pce-wave'], crash: ['pce-wave'], clap: ['pce-wave'], tom: ['pce-wave'], arp: ['pce-wave'] },
   ps1: SAMPLE_ROLE_KINDS,
-  dreamcast: SAMPLE_ROLE_KINDS
+  dreamcast: SAMPLE_ROLE_KINDS,
+  gm: {
+    lead: GM_MELODIC_KINDS, bass: GM_MELODIC_KINDS, pad: GM_MELODIC_KINDS, arp: GM_MELODIC_KINDS,
+    kick: GM_DRUM_KINDS, snare: GM_DRUM_KINDS, hihat: GM_DRUM_KINDS, openhat: GM_DRUM_KINDS, crash: GM_DRUM_KINDS, clap: GM_DRUM_KINDS, tom: GM_DRUM_KINDS
+  }
 }
 
 export function defaultChannelKinds(chip: ChipId, role: Role): ChannelKind[] {

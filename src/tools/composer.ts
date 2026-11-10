@@ -53,6 +53,16 @@ import {
 } from '../core'
 import type { ChannelDef, DrumRole, MoodRecipe, Progression } from '../core'
 import { addSongInstrument, bestOctaveShift, foldIntoRange, presetFor, snapVolume, writeChannelPatterns } from '../core/codecs/songBuild'
+import { LEAD_RANGE, type PercKind } from './composer/palettes'
+import { createRng } from './composer/rng'
+import { TEXTURES, type TextureEnv, type TexturePart, percussionPlan } from './composer/textures'
+import { type Fingerprint, type FormId, avoidViolations, describeViolations, formSections, minBarsForForm, resolveVariety } from './composer/variety'
+
+export { createRng }
+export type { Fingerprint, FormId } from './composer/variety'
+export { FORMS } from './composer/variety'
+export { TEXTURE_IDS } from './composer/textures'
+export type { TextureId } from './composer/palettes'
 
 export interface ComposeOptions {
   mood: string
@@ -78,6 +88,14 @@ export interface ComposeOptions {
   /** Channel id -> preset id or role. */
   instruments?: Record<string, string>
   name?: string
+  /** How the harmony and bass are played (gm chip only; default: a seeded pick that suits the palette): see TEXTURE_IDS. */
+  texture?: string
+  /** Song form over the body: "A" (default on the other chips), "AB", "ABA" or "AABA". B plays a second progression. Default on gm: a seeded pick. */
+  form?: string
+  /** Instrument palette id (gm chip only): which lead, pads, bass and accompaniment the track uses. Default: a seeded pick for the mood. */
+  palette?: string
+  /** Fingerprints of the tracks already made for the same work: this one gets another texture and lead, a tempo 8+ BPM away and another key than the last. */
+  avoid?: Fingerprint[]
 }
 
 export interface ComposeResult {
@@ -103,21 +121,15 @@ export interface ComposeResult {
   progression: string
   /** The motif as placed (null without a motif or a lead channel): its length, the shift from motifKey and the bars it starts at. */
   motif: { bars: number; transposeSemis: number; placedAtBars: number[] } | null
+  /** What the track is made of; pass it in `avoid` of the next track of the same work. */
+  fingerprint: Fingerprint
+  /** The palette used (gm chip), else null. */
+  palette: string | null
+  /** Set when the avoid rule could not be met (which rule and why), or an option was ignored. */
+  warning?: string
 }
 
 // ---------------------------------------------------------------------------------------------- random
-
-/** mulberry32: small, fast, good enough, and the same on every platform. */
-export function createRng(seed: number): () => number {
-  let a = seed >>> 0
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
 
 type Rng = () => number
 
@@ -136,7 +148,7 @@ function weighted(rng: Rng, weights: readonly number[]): number {
 
 // ---------------------------------------------------------------------------------------------- styles
 
-const CALM_MOODS = new Set(['ambient', 'lullaby', 'peaceful', 'mysterious-calm'])
+const CALM_MOODS = new Set(['ambient', 'lullaby', 'peaceful', 'mysterious-calm', 'wonder', 'storybook', 'focus'])
 
 /** Chip used when the caller gives none. Calm moods like the SNES pads and strings; the rest is the classic NES. */
 const DEFAULT_CHIP: Record<string, ChipId> = {
@@ -152,7 +164,13 @@ const DEFAULT_CHIP: Record<string, ChipId> = {
   synthwave: 'ps1',
   darkwave: 'ps1',
   outrun: 'dreamcast',
-  dreamwave: 'dreamcast'
+  dreamwave: 'dreamcast',
+  // kids and learning moods: a chip that renders without a download; pass chip "gm" for the real instruments
+  wonder: 'snes',
+  storybook: 'snes',
+  focus: 'snes',
+  curious: 'snes',
+  cafe: 'genesis'
 }
 
 /** Moods that get the synth treatment (own style, presets, arrangement extras and chip effects). */
@@ -186,7 +204,23 @@ const SYNTH_STYLES: Record<string, Pick<MoodStyle, 'density' | 'chordBars' | 'ba
   dreamwave: { density: 'sparse', chordBars: 2, bass: 'rock', restBars: 0.15 }
 }
 
+/** The kids and learning moods: calm ones use the soft presets and the sparse calm arrangement. */
+const KIDS_STYLES: Record<string, Partial<MoodStyle>> = {
+  playful: { density: 'medium', chordBars: 1, bass: 'quarters', restBars: 0.08, level: 0.9 },
+  curious: { density: 'medium', chordBars: 2, bass: 'rock', restBars: 0.14, level: 0.85 },
+  cafe: { density: 'medium', chordBars: 1, bass: 'quarters', restBars: 0.1, level: 0.85 },
+  'adventure-light': { density: 'medium', chordBars: 1, bass: 'quarters', restBars: 0.05, level: 0.95 },
+  wonder: { density: 'sparse', restBars: 0.12, bass: 'hold', level: 0.85, drums: null },
+  storybook: { density: 'medium', restBars: 0.08, bass: 'rock', level: 0.85, drums: null },
+  focus: { density: 'sparse', restBars: 0.2, bass: 'rock', level: 0.8, drums: 'focus-tick' }
+}
+
 function styleFor(mood: MoodRecipe): MoodStyle {
+  const kids = KIDS_STYLES[mood.id]
+  if (kids) {
+    const calm = CALM_MOODS.has(mood.id)
+    return { calm, density: 'medium', chordBars: 2, bass: 'quarters', restBars: 0.1, level: 0.9, drums: mood.drumStyles[0] ?? null, ...kids }
+  }
   const synthStyle = SYNTH_STYLES[mood.id]
   if (SYNTH_MOODS.has(mood.id) && synthStyle) return { calm: false, ...synthStyle, level: 1, drums: mood.drumStyles[0] ?? null }
   const calm = CALM_MOODS.has(mood.id)
@@ -465,15 +499,27 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   const mood = requireMood(opts.mood)
   const chip = opts.chip ? requireChipId(opts.chip) : defaultChipForMood(mood.id)
   const style = styleFor(mood)
+  // SoundFont instruments are much quieter than the chip voices at the same velocity: calm gm tracks play a bit harder
+  if (chip === 'gm' && style.calm) style.level = Math.min(1.15, style.level * 1.3)
   const synth = SYNTH_MOODS.has(mood.id)
   const rng = createRng(opts.seed)
 
   const minorPick = opts.scale ? isMinorScale(opts.scale) : undefined
   const scaleId = requireScale(opts.scale ?? pick(rng, mood.scales)).id
-  const keyPc = normalizePitchClass(opts.key ?? pick(rng, mood.keys))
+  let keyPc = normalizePitchClass(opts.key ?? pick(rng, mood.keys))
   if (!keyPc) throw new Error(`Invalid key "${opts.key}": use a note name such as C, F#, Bb.`)
-  const bpm = opts.bpm ?? Math.round(mood.bpm[0] + rng() * (mood.bpm[1] - mood.bpm[0]))
+  let bpm = opts.bpm ?? Math.round(mood.bpm[0] + rng() * (mood.bpm[1] - mood.bpm[0]))
   if (!(bpm >= 20 && bpm <= 400)) throw new Error(`Invalid bpm ${bpm}: use 20..400.`)
+
+  // ---- variety: palette, texture, form and the avoid rule. Everything here draws from its own RNG and never from `rng`,
+  // so the key, tempo and harmony of a seed are the same with and without these options (and on every chip).
+  const variety = resolveVariety({ mood, chip, opts, synth, key: keyPc, bpm })
+  keyPc = variety.key
+  bpm = variety.bpm
+  const pal = variety.palette
+  const tex = TEXTURES[variety.texture]
+  const texImpl = tex.write !== null
+  const warnings = [...variety.warnings]
 
   let bars = Math.round(opts.bars ?? 16)
   if (opts.seconds !== undefined) bars = Math.round(opts.seconds / ((60 / bpm) * 4))
@@ -540,6 +586,11 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   const soft = (part: 'lead' | 'pad' | 'pad2' | 'pad3' | 'bass', chIdx: number, fallbackRole: Role): Instrument => {
     const kind = song.channels[chIdx]!.kind
     if (synth) return synthInstrument(chip, part, mood, kind)
+    if (pal) {
+      const palRef = part === 'lead' ? pal.lead : part === 'bass' ? pal.bass : part === 'pad' ? pal.pad : (pal.pad2 ?? pal.pad)
+      const inst = tryResolvePreset(chip, palRef, kind)
+      if (inst) return inst
+    }
     if (style.calm) {
       const ref = softPresetRef(chip, part === 'pad3' ? 'pad2' : part, mood)
       const inst = tryResolvePreset(chip, ref, kind)
@@ -565,10 +616,39 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   // ---- harmony
   const prog = findProgression(mood, minorPick ?? isMinorScale(scaleId), rng)
   const slots = Math.ceil(bars / style.chordBars)
+  // form: sections of the body; B plays a second progression (another one of the mood, else the first one started from its middle)
+  let formId: FormId = variety.form
+  if (formId !== 'A' && bars < minBarsForForm(formId, style.chordBars)) {
+    warnings.push(`form ${formId} needs at least ${minBarsForForm(formId, style.chordBars)} bars; used A.`)
+    formId = 'A'
+  }
+  const sections = formSections(formId, bars, style.chordBars)
+  const hasB = sections.some((s) => s.letter === 'B')
+  const sectionAt = (bar: number): 'A' | 'B' => sections.find((s) => bar >= s.start && bar < s.end)?.letter ?? 'A'
+  const sectionStart = (bar: number): number => sections.find((s) => bar >= s.start && bar < s.end)?.start ?? 0
+  let progB: Progression = prog
+  if (hasB) {
+    const mode = (minorPick ?? isMinorScale(scaleId)) ? 'minor' : 'major'
+    const others = PROGRESSIONS.filter((p) => p.moods.includes(mood.id) && p.id !== prog.id && p.mode === mode)
+    if (others.length > 0) progB = others[Math.floor(variety.rng() * others.length)]!
+    else {
+      const half = Math.floor(prog.numerals.length / 2)
+      progB = { ...prog, id: `${prog.id}-b`, numerals: [...prog.numerals.slice(half), ...prog.numerals.slice(0, half)] }
+    }
+  }
+  const lastSlot = slots - 1
   const chordAt = (bar: number): ReturnType<typeof romanToChord> => {
     const slot = Math.floor(bar / style.chordBars)
-    const idx = slot === slots - 1 && slots > 1 ? prog.numerals.length - 1 : slot % prog.numerals.length
-    return romanToChord(prog.numerals[idx]!, keyPc, 3)
+    if (!hasB && formId === 'A') {
+      const idx = slot === lastSlot && slots > 1 ? prog.numerals.length - 1 : slot % prog.numerals.length
+      return romanToChord(prog.numerals[idx]!, keyPc, 3)
+    }
+    const letter = sectionAt(bar)
+    const p = letter === 'B' ? progB : prog
+    const local = Math.floor((bar - sectionStart(bar)) / style.chordBars)
+    // the very last chord of the body is the progression's turnaround, so the loop closes on it
+    const idx = slot === lastSlot && slots > 1 && letter === 'A' ? p.numerals.length - 1 : local % p.numerals.length
+    return romanToChord(p.numerals[idx]!, keyPc, 3)
   }
   // intro: the tonic held, the last bar (with 2+ bars) on the progression's last chord, which leads into the first one
   const introChord = (bar: number): ReturnType<typeof romanToChord> =>
@@ -605,8 +685,56 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     fillEvery = pick(vr, [2, 4, 4, 8])
   }
 
+  // ---- texture (gm chip, any texture but pad-lead): bass, sustained voices, accompaniment and sparkle written by composer/textures.ts
+  const texPads: TexturePart[] = []
+  const texComp: TexturePart[] = []
+  let texBass: TexturePart | undefined
+  let texSparkle: TexturePart | undefined
+  if (texImpl && pal) {
+    type TexPart = 'bass' | 'pad' | 'pad2' | 'comp' | 'sparkle'
+    const palRole: Record<TexPart, Role> = { bass: 'bass', pad: 'pad', pad2: 'strings', comp: 'pluck', sparkle: 'bell' }
+    const make = (id: string, part: TexPart, label: string): TexturePart | undefined => {
+      const ch = channelIndex(song, id)
+      if (ch < 0) return undefined
+      const ref = part === 'bass' ? pal.bass : part === 'pad' ? pal.pad : part === 'pad2' ? (pal.pad2 ?? pal.pad) : part === 'comp' ? pal.comp : (pal.sparkle ?? pal.comp)
+      const inst = instFor(ch, () => tryResolvePreset(chip, ref, song.channels[ch]!.kind) ?? presetFor(chip, palRole[part], song.channels[ch]!.kind))
+      parts.push(`${id} ${label}: ${song.instruments[inst]!.name}`)
+      return { ch, inst }
+    }
+    texBass = make('M2', 'bass', 'bass')
+    ;['M3', 'M4', 'M5', 'M6'].slice(0, tex.pads).forEach((id, k) => {
+      const p = make(id, k % 2 === 0 ? 'pad' : 'pad2', 'pad')
+      if (p) texPads.push(p)
+    })
+    ;['M7', 'M8', 'M9'].slice(0, tex.comp).forEach((id) => {
+      const p = make(id, 'comp', 'comp')
+      if (p) texComp.push(p)
+    })
+    if (tex.sparkle && pal.sparkle) texSparkle = make('M10', 'sparkle', 'sparkle')
+    const texEnv: TextureEnv = {
+      bars,
+      introBars,
+      chordBars: style.chordBars,
+      calm: style.calm,
+      rng: variety.rng,
+      chordAt,
+      introChord,
+      sectionAt,
+      note: (p, row, midi, vol) => put(p.ch, row, noteCell(p.ch, midi, p.inst, vol)),
+      rel: (p, row) => {
+        if (row >= 0 && row < totalRows && linear[p.ch]![off + row] === null) put(p.ch, row, { note: 'rel' })
+      },
+      introNote: (p, bar, midi, vol) => putIntro(p.ch, bar, noteCell(p.ch, midi, p.inst, vol)),
+      bass: texBass,
+      pads: texPads,
+      comp: texComp,
+      sparkle: texSparkle
+    }
+    tex.write!(texEnv)
+  }
+
   // ---- bass
-  if (plan.bass !== undefined) {
+  if (!texImpl && plan.bass !== undefined) {
     const ch = plan.bass
     const inst = instFor(ch, () => soft('bass', ch, 'bass'))
     parts.push(`${song.channels[ch]!.id} bass: ${song.instruments[inst]!.name}`)
@@ -626,8 +754,9 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   }
 
   // ---- pads
+  const padChans = texImpl ? [] : plan.pads
   const padInsts: number[] = []
-  plan.pads.forEach((ch, k) => {
+  padChans.forEach((ch, k) => {
     const inst = instFor(ch, () => soft(k === 0 ? 'pad' : k === 1 ? 'pad2' : 'pad3', ch, k === 0 ? mood.parts.pad : 'strings'))
     padInsts.push(inst)
     parts.push(`${song.channels[ch]!.id} pad: ${song.instruments[inst]!.name}`)
@@ -640,7 +769,7 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     return nearPitch((chord.root + semis) % 12, k === 0 ? 62 : 68)
   }
   // synth moods with three chord voices: root, third and the fifth (the seventh instead when the chord has one), close together
-  const threePads = plan.pads.length >= 3
+  const threePads = padChans.length >= 3
   const synthPadPitch = (k: number, chord: ReturnType<typeof romanToChord>): number => {
     const iv = chord.intervals
     const semis = k === 0 ? 0 : k === 1 ? iv[1]! : iv.length >= 4 ? iv[iv.length - 1]! : iv[2] ?? iv[1]!
@@ -651,13 +780,13 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   for (let bar = 0; bar < introBars; bar++) {
     if (bar !== 0 && bar !== introBars - 1) continue
     const chord = introChord(bar)
-    plan.pads.forEach((ch, k) => {
-      const pitch = threePads ? synthPadPitch(k, chord) : plan.pads.length >= 2 ? padPitch(k, chord) : nearPitch(chord.root, 60)
+    padChans.forEach((ch, k) => {
+      const pitch = threePads ? synthPadPitch(k, chord) : padChans.length >= 2 ? padPitch(k, chord) : nearPitch(chord.root, 60)
       putIntro(ch, bar, noteCell(ch, pitch, padInsts[k]!, 5))
     })
   }
-  if (plan.pads.length >= 2) {
-    plan.pads.forEach((ch, k) => {
+  if (padChans.length >= 2) {
+    padChans.forEach((ch, k) => {
       const inst = padInsts[k]!
       for (let bar = 0; bar < bars; bar += style.chordBars) {
         const chord = chordAt(bar)
@@ -669,8 +798,8 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
         put(ch, bar * ROWS_PER_BAR + (k === 0 ? 0 : padEntry), noteCell(ch, padPitch(k, chord), inst, 8))
       }
     })
-  } else if (plan.pads.length === 1) {
-    const ch = plan.pads[0]!
+  } else if (padChans.length === 1) {
+    const ch = padChans[0]!
     const inst = padInsts[0]!
     for (let bar = 0; bar < bars; bar++) {
       const chord = chordAt(bar)
@@ -688,9 +817,9 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   }
 
   // ---- arp (lively moods, on a free arpeggio voice)
-  if (plan.arp !== undefined) {
+  if (!texImpl && plan.arp !== undefined) {
     const ch = plan.arp
-    const inst = instFor(ch, () => (synth ? synthInstrument(chip, 'arp', mood, song.channels[ch]!.kind) : presetFor(chip, mood.parts.harmony, song.channels[ch]!.kind)))
+    const inst = instFor(ch, () => (synth ? synthInstrument(chip, 'arp', mood, song.channels[ch]!.kind) : (pal ? tryResolvePreset(chip, pal.comp, song.channels[ch]!.kind) : undefined) ?? presetFor(chip, mood.parts.harmony, song.channels[ch]!.kind)))
     parts.push(`${song.channels[ch]!.id} arp: ${song.instruments[inst]!.name}`)
     const order = [0, 1, 2, 1]
     let arpUpDown = false
@@ -724,9 +853,14 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     const inst = instFor(ch, () => soft('lead', ch, mood.parts.lead))
     parts.push(`${song.channels[ch]!.id} lead: ${song.instruments[inst]!.name}`)
     const def = defOf(ch)
-    const lo = Math.max(def?.noteMin ?? 0, 60)
-    const hi = Math.min(def?.noteMax ?? 127, 84)
+    // the melody range comes from the instrument on the gm chip (a flute sits higher than a bassoon), else 60..84
+    const leadRange = pal ? LEAD_RANGE[song.instruments[inst]!.presetId ?? ''] : undefined
+    const lo = Math.max(def?.noteMin ?? 0, leadRange?.[0] ?? 60)
+    const hi = Math.min(def?.noteMax ?? 127, leadRange?.[1] ?? 84)
     const range = scaleNotes(keyPc, scaleId, lo, hi)
+    // a texture may thin the melody out (chorale) or keep it busy
+    const leadDensity: Density = tex.lead?.density ?? style.density
+    const leadRest = tex.lead?.restBars ?? style.restBars
 
     const writeLead = (notes: number[], low: number, high: number): void => {
       const center = Math.round((low + high) / 2) - 2
@@ -740,7 +874,7 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
         return cands.find((i) => pcs.includes(notes[i]! % 12)) ?? idx
       }
       const lrng = vr ?? rng
-      const rh = RHYTHMS[style.density]
+      const rh = RHYTHMS[leadDensity]
       // phrase rhythms: set A for even phrases, set B for odd ones, so the music has a recognisable shape
       const makeSet = (): Rhythm[] => {
         const a = pick(lrng, rh.normal)
@@ -748,6 +882,8 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
         return [a, b, chance(lrng, 0.6) ? a : pick(lrng, rh.normal), pick(lrng, rh.cadence)]
       }
       const sets = [makeSet(), makeSet()]
+      // the B section has its own phrase rhythms (drawn only when the form has a B, so a plain A track keeps its draws)
+      const setsB = hasB ? [makeSet(), makeSet()] : null
       let idx = nearest(center)
       let prevStep = 0
 
@@ -812,10 +948,10 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
         const phrase = Math.floor(bar / 4)
         const inPhrase = bar % 4
         const lastBarOfSong = bar === bars - 1
-        let rhythm = sets[phrase % 2]![inPhrase]!
+        let rhythm = (setsB && sectionAt(bar) === 'B' ? setsB : sets)[phrase % 2]![inPhrase]!
         if (lastBarOfSong && inPhrase !== 3) rhythm = pick(lrng, rh.cadence)
         const cadence = inPhrase === 3 || lastBarOfSong
-        if (bar > 0 && !cadence && chance(lrng, style.restBars)) rhythm = []
+        if (bar > 0 && !cadence && chance(lrng, leadRest)) rhythm = []
         const chord = chordAt(bar)
         const pcs = chordPitchClasses(chord.root, chord.intervals)
         rhythm.forEach(([start, len], j) => {
@@ -900,7 +1036,8 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
       for (const role of roles) {
         const override = opts.instruments?.[song.channels[ch]!.id]
         const found = override && roles.length === 1 ? tryResolvePreset(chip, override, kind) : undefined
-        insts.set(role, addSongInstrument(song, found ?? (synth ? synthInstrument(chip, role, mood, kind) : presetFor(chip, role, kind))))
+        const palDrum = pal?.drums?.[role] ? tryResolvePreset(chip, pal.drums[role]!, kind) : undefined
+        insts.set(role, addSongInstrument(song, found ?? palDrum ?? (synth ? synthInstrument(chip, role, mood, kind) : presetFor(chip, role, kind))))
       }
       parts.push(`${song.channels[ch]!.id} drums: ${roles.join('+')}`)
       for (let bar = 0; bar < bars; bar++) {
@@ -918,6 +1055,16 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
         }
       }
     }
+  } else if (pal && pal.perc !== 'none' && style.calm) {
+    // light percussion for a calm gm track (shaker, side-stick, brushes, triangle, wood block): a few quiet hits per bar
+    for (const hit of percussionPlan(pal.perc as PercKind)) {
+      const ch = channelIndex(song, hit.channel)
+      if (ch < 0) continue
+      const override = opts.instruments?.[hit.channel]
+      const inst = addSongInstrument(song, (override ? tryResolvePreset(chip, override, song.channels[ch]!.kind) : undefined) ?? resolvePreset(chip, hit.preset, song.channels[ch]!.kind))
+      parts.push(`${hit.channel} percussion: ${song.instruments[inst]!.name}`)
+      for (let bar = 1; bar < bars; bar++) for (const row of hit.rows) put(ch, bar * ROWS_PER_BAR + row, noteCell(ch, defaultDrumNote(hit.role, song.channels[ch]!.kind), inst, hit.vol))
+    }
   }
 
   // ---- write the patterns
@@ -929,6 +1076,30 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
   if (problems.length > 0) throw new Error(`The composed song breaks ${chip.toUpperCase()} limits: ${problems.map((p) => p.message).slice(0, 3).join(' ')}`)
 
   const used = song.channels.filter((_, i) => linear[i]!.some((c) => c !== null)).map((c) => c.id)
+  // the fingerprint: the preset ids that were actually used (an `instruments` override counts)
+  const presetOn = (ch: number | undefined): string => {
+    if (ch === undefined) return ''
+    const first = linear[ch]!.find((c) => c && typeof c.inst === 'number')
+    const inst = first ? song.instruments[first.inst!] : undefined
+    return inst ? (inst.presetId ?? inst.name) : ''
+  }
+  const fingerprint: Fingerprint = {
+    texture: tex.id,
+    lead: presetOn(plan.lead),
+    pad: presetOn(texImpl ? (texPads[0] ?? texComp[0])?.ch : padChans[0]),
+    bass: presetOn(texImpl ? texBass?.ch : plan.bass),
+    bpm,
+    key: keyPc,
+    scale: scaleId,
+    form: formId
+  }
+  if (opts.avoid && opts.avoid.length > 0) {
+    // the texture rule only counts on the gm chip, the one with textures
+    // (the lead rule too: only the gm palettes can swap the lead)
+    const probe = { texture: pal ? fingerprint.texture : null, lead: pal ? fingerprint.lead : '', bpm, key: keyPc }
+    const broken = avoidViolations(probe, opts.avoid)
+    if (broken.length > 0) warnings.push(`avoid: could not meet ${broken.join(', ')} (${describeViolations(broken, { ...probe, texture: fingerprint.texture })}).`)
+  }
   return {
     song,
     seed: opts.seed,
@@ -946,6 +1117,9 @@ export function composeSong(opts: ComposeOptions): ComposeResult {
     parts,
     chords: chordNames,
     progression: prog.id,
-    motif: motifInfo
+    motif: motifInfo,
+    fingerprint,
+    palette: pal ? pal.id : null,
+    ...(warnings.length > 0 ? { warning: warnings.join(' ') } : {})
   }
 }

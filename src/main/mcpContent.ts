@@ -57,14 +57,14 @@ export const PROMPTS: McpPromptInfo[] = [
     description: 'Compose a game-music track in a mood for a chip, step by step.',
     arguments: [
       { name: 'mood', description: 'Mood, e.g. "heroic", "spooky dungeon", "chill shop", "boss battle", "synthwave".', required: true },
-      { name: 'chip', description: 'Chip: nes, gb (8-bit), genesis, snes, pce (16-bit), ps1 or dreamcast (sample chips). Default: the mood\'s chip (ps1 for synthwave and darkwave, dreamcast for outrun and dreamwave, snes for calm moods, genesis for chill, shop and castle, nes otherwise).', required: false },
+      { name: 'chip', description: 'Chip: nes, gb (8-bit), genesis, snes, pce (16-bit), ps1 or dreamcast (sample chips), gm (General MIDI SoundFont instruments). Default: the mood\'s chip (ps1 for synthwave and darkwave, dreamcast for outrun and dreamwave, snes for calm moods, genesis for chill, shop and castle, nes otherwise).', required: false },
       { name: 'length', description: 'Length, e.g. "32 bars" or "90 seconds". Default: the mood recipe\'s arrangement.', required: false }
     ]
   },
   {
     name: 'remix_to_chip',
     description: 'Re-create the open song for another chip (convert it, then fix what the new chip cannot do).',
-    arguments: [{ name: 'chip', description: 'Target chip: nes, gb, genesis, snes, pce, ps1 or dreamcast.', required: true }]
+    arguments: [{ name: 'chip', description: 'Target chip: nes, gb, genesis, snes, pce, ps1, dreamcast or gm.', required: true }]
   },
   {
     name: 'match_style',

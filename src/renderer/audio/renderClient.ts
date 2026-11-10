@@ -3,7 +3,10 @@
 
 import { renderSong } from '../../core/synth'
 import type { Song } from '../../core/types'
+import { getSoundFontBytes } from '../../core/synth'
 import type { AudioRenderOptions, AudioRenderResult } from '../../tools/services'
+import { ensureSoundFontLoaded } from '../../tools/soundfontLoad'
+import { createIpcSoundFont } from '../toolBridgeClient'
 import type { FromRenderWorker, ToRenderWorker } from './protocol'
 
 export type RenderProgress = (fraction: number, label: string) => void
@@ -11,6 +14,7 @@ export type RenderProgress = (fraction: number, label: string) => void
 let nextId = 1
 
 export async function renderOffline(song: Song, opts: AudioRenderOptions = {}, onProgress?: RenderProgress): Promise<AudioRenderResult> {
+  if (song.chip === 'gm') await ensureSoundFontLoaded(createIpcSoundFont(), song)
   if (typeof Worker === 'undefined') {
     onProgress?.(0.05, 'Rendering')
     const r = renderSong(song, { sampleRate: opts.sampleRate ?? 44100, loops: opts.loops ?? 1, fadeOutSec: opts.fadeOutSec ?? 0, stems: opts.stems ?? false })
@@ -38,7 +42,8 @@ export async function renderOffline(song: Song, opts: AudioRenderOptions = {}, o
       done()
       reject(new Error(ev.message || 'The render worker failed to start.'))
     }
-    const msg: ToRenderWorker = { type: 'render', id, song, opts }
+    const soundfont = song.chip === 'gm' ? (getSoundFontBytes() ?? undefined) : undefined
+    const msg: ToRenderWorker = { type: 'render', id, song, opts, ...(soundfont ? { soundfont } : {}) }
     worker.postMessage(msg)
   })
 }

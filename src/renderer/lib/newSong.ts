@@ -57,7 +57,9 @@ const STARTER_ROLES: Partial<Record<ChannelKind, string[]>> = {
   sample: ['lead'],
   noise: ['hihat', 'snare', 'kick'],
   'psg-noise': ['hihat', 'snare'],
-  dpcm: ['kick']
+  dpcm: ['kick'],
+  'gm-melodic': ['lead', 'bass', 'pad', 'bell'],
+  'gm-drums': ['kick', 'snare', 'hihat']
 }
 
 /** Instruments to start a song with: one per (channel kind, role) that a preset exists for. */

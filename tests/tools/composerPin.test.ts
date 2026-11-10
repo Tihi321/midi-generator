@@ -14,7 +14,12 @@ const CASES: Array<[ComposeOptions, string]> = [
   [{ mood: 'mysterious-calm', chip: 'genesis', seed: 9, bars: 12, loop: false }, '7dfa403c950d315ddbea4f0f'],
   [{ mood: 'heroic', seed: 3, bars: 16 }, '7a50387417ecc5185914da0c'],
   [{ mood: 'chill', chip: 'pce', seed: 11, bars: 8, key: 'D', scale: 'dorian' }, '9b3b7e31aaeb8cb95e398f33'],
-  [{ mood: 'title', seed: 5, bars: 32 }, '4eac9d770e13895e1f28eb2e']
+  [{ mood: 'title', seed: 5, bars: 32 }, '4eac9d770e13895e1f28eb2e'],
+  // MDI-15 (HUB-33): hashes taken before textures, forms, palettes and the avoid rule were added; none of them is used here
+  [{ mood: 'peaceful', chip: 'snes', seed: 7 }, 'f2384bce9b5a8df233d03940'],
+  [{ mood: 'lullaby', chip: 'snes', seed: 3, bars: 16 }, 'a20732d10c4472e162bebf7c'],
+  [{ mood: 'heroic', chip: 'nes', seed: 5, bars: 16 }, '0d8c12690903d06d88380565'],
+  [{ mood: 'chill', chip: 'genesis', seed: 13, bars: 12 }, '19ac6e091dc068ac5134b8a7']
 ]
 
 describe('composer backward compatibility', () => {

@@ -16,6 +16,8 @@ export type ToWorklet =
   | { type: 'volume'; value: number }
   | { type: 'mute'; index: number; muted: boolean | undefined }
   | { type: 'audition'; song: Song }
+  /** The gm chip's SoundFont file bytes; sent once before the first gm song plays. */
+  | { type: 'soundfont'; bytes: ArrayBuffer }
   | { type: 'stopAudition' }
 
 /** Worklet -> main thread. */
@@ -26,7 +28,7 @@ export type FromWorklet =
 /** Position reports per second. */
 export const POSITION_HZ = 30
 
-export type ToRenderWorker = { type: 'render'; id: number; song: Song; opts: AudioRenderOptions }
+export type ToRenderWorker = { type: 'render'; id: number; song: Song; opts: AudioRenderOptions; /** SoundFont bytes for a gm song. */ soundfont?: ArrayBuffer }
 
 export type FromRenderWorker =
   | { type: 'progress'; id: number; fraction: number; label: string }

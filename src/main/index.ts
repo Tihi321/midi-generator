@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { IPC, type OpenSongRequest } from '../shared/ipc'
 import { type NodeServices, registerServices } from './services'
+import { registerSoundFont } from './soundfont'
 import { ToolBridge } from './toolBridge'
 import { startMcp } from './mcpApp'
 import { registerAgentIpc } from './agentIpc'
@@ -121,6 +122,7 @@ function runWindowed(): void {
 
   void app.whenReady().then(() => {
     services = registerServices(ipcMain)
+    registerSoundFont(ipcMain)
     startAssets()
     toolBridge.registerIpc(ipcMain)
     // A port that is already taken (e.g. by a headless server) shows up as an MCP status error; it never throws.

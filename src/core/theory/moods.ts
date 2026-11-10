@@ -326,6 +326,83 @@ const SEEDS: MoodSeed[] = [
       'An electric-piano pad doubles the chords; a detuned saw lead floats above in long notes.',
       'Keep the bass slow (root and fifth) so the pads and the chorus carry the sound.'
     ]
+  },
+  {
+    id: 'playful', name: 'Playful', description: 'Light, bouncy and cheerful: a skipping beat, short notes and a tune a child could whistle.',
+    bpm: [100, 126], keys: ['C', 'G', 'F', 'D', 'A#'], scales: ['major', 'major-pentatonic', 'mixolydian'], lead: 'flute', harmony: 'pluck', pad: 'strings',
+    sections: [['A', 8], ['B', 8]], loopFrom: 'A',
+    techniques: [
+      'Short, detached notes in a major pentatonic tune; answer every phrase with a copy that ends differently.',
+      'Bass hops root and fifth on the quarters (oom-pah); chords are plucked on the off-beats.',
+      'Keep every part soft and leave a rest now and then so the tune can breathe.',
+      'A light skipping beat: kick on 1 and 3, clap or rim on 2 and 4, quiet ticks between.'
+    ]
+  },
+  {
+    id: 'curious', name: 'Curious', description: 'Inquisitive and light: a questioning tune with small leaps, plucked colours and a quiet pulse.',
+    bpm: [84, 108], keys: ['D', 'A', 'E', 'C', 'G'], scales: ['dorian', 'major-pentatonic', 'lydian'], lead: 'bell', harmony: 'pluck', pad: 'pad',
+    sections: [['A', 8], ['B', 8]], loopFrom: 'A',
+    techniques: [
+      'End phrases on a step that is not the tonic, as if asking a question; answer it two bars later.',
+      'Plucked or bell-like colours: marimba, kalimba or harp in broken chords.',
+      'Dorian or lydian colour keeps it bright without being silly.',
+      'A very light beat: soft kick, rim tick and quiet shaker.'
+    ]
+  },
+  {
+    id: 'focus', name: 'Focus', description: 'Steady and unobtrusive study music: warm sevenths, a level groove and a melody that stays out of the way.',
+    bpm: [80, 100], keys: ['F', 'C', 'G', 'A#', 'D#'], scales: ['major', 'dorian', 'major-pentatonic'], lead: 'pluck', harmony: 'pad', pad: 'organ',
+    sections: [['A', 8], ['B', 8]], loopFrom: 'A',
+    techniques: [
+      'Keep the melody narrow (a sixth at most) with long and short notes in a fixed pattern.',
+      'Warm electric-piano chords, a round bass and a quiet side-stick keep a level pulse.',
+      'One chord every two bars; avoid surprises: no big leaps, no loud accents.',
+      'Never louder than mezzo piano: the music should be forgotten while the learner reads.'
+    ]
+  },
+  {
+    id: 'wonder', name: 'Wonder', description: 'Open and glowing, like a first look at the stars: rising chords, sparkles and slow strings.',
+    bpm: [72, 96], keys: ['C', 'D', 'G', 'A', 'E'], scales: ['lydian', 'major', 'major-pentatonic'], lead: 'bell', harmony: 'arp', pad: 'strings',
+    sections: [['A', 8], ['B', 8]], loopFrom: 'A',
+    techniques: [
+      'Lydian colour (the raised 4th) and the major II chord give the feeling of looking up.',
+      'Sparkling bells over slow strings; a harp sweeps the chord now and then.',
+      'Rising phrases that hang on a long note before the answer.',
+      'Barely any drums: a soft shimmer on the off-beats.'
+    ]
+  },
+  {
+    id: 'cafe', name: 'Cafe', description: 'Warm cafe jazz: bossa-nova comping, a walking bass, seventh chords and a relaxed swing.',
+    bpm: [88, 112], keys: ['F', 'C', 'G', 'A#', 'D#'], scales: ['major', 'dorian', 'major-pentatonic'], groove: [7, 5], lead: 'pluck', harmony: 'organ', pad: 'pad',
+    sections: [['A', 8], ['B', 8]], loopFrom: 'A',
+    techniques: [
+      'ii-V-I turnarounds in sevenths; the guitar or electric piano comps the syncopated bossa rhythm.',
+      'Bass on the root and the fifth with the bossa push on the "and" of 2 and 4.',
+      'A relaxed melody that starts late (the "and" of 1) and ends early.',
+      'Cross-stick and brushes, never a full kit: the room must stay quiet enough to talk.'
+    ]
+  },
+  {
+    id: 'adventure-light', name: 'Light adventure', description: 'Cheerful, open-road adventure for kids: a spirited march, a bright tune and a steady trot of drums.',
+    bpm: [104, 128], keys: ['C', 'G', 'D', 'F', 'A'], scales: ['major', 'mixolydian', 'dorian'], lead: 'flute', harmony: 'arp', pad: 'strings',
+    sections: [['A', 8], ['B', 8]], loopFrom: 'A',
+    techniques: [
+      'A bright tune in the major or mixolydian that leaps up a fourth or fifth on the first beat and steps down.',
+      'Bass walks root, third, fifth on the quarters; chords stab on the off-beats.',
+      'The B section goes to IV or vi for contrast, and back to A for the loop.',
+      'A light trot: kick on 1 and 3, snare on 2 and 4, eighth ticks; no fills longer than a beat.'
+    ]
+  },
+  {
+    id: 'storybook', name: 'Storybook', description: 'Warm, tender and a little magical, like a picture book read aloud: a singing tune over soft chords.',
+    bpm: [72, 100], keys: ['C', 'F', 'G', 'D', 'A#'], scales: ['major', 'major-pentatonic'], lead: 'bell', harmony: 'pluck', pad: 'strings',
+    sections: [['A', 8], ['B', 8]], loopFrom: 'A',
+    techniques: [
+      'A simple, singable tune in the major pentatonic that repeats with a small change.',
+      'Soft strings or a warm pad underneath, a harp or music box for colour.',
+      'One chord every two bars; the loop should end where it began so it can run for minutes.',
+      'Keep drums out, or add only a triangle or shaker.'
+    ]
   }
 ]
 
@@ -372,6 +449,12 @@ export const CHIP_IDIOMS: Record<ChipId, string[]> = {
     'The resonant filter envelope shapes brass swells and bass plucks; the LFO adds vibrato and tremolo.',
     'The DSP is global: choose chorus-hall for pads and leads, delay or echo for rhythmic repeats, and switch it per slot with E01/E00.',
     'Sixteen slots in a fixed layout: bass V1, leads V2/V3, pads V4-V6, arp V7, pluck V8, toms V12, kick V13, snare V14, hats V15, crash V16; 32 and 64 slots add free voices for doubling.'
+  ],
+  gm: [
+    'Real instruments: pick by role (gm.lead.clarinet, gm.bell.celesta, gm.pluck.harp, gm.strings.ensemble, gm.bass.upright); one note per channel, so a chord is three channels.',
+    'Layout: lead M1, bass M2, pads M3/M4, a second line M5, brass M6, plucked or broken-chord part M7/M8; M9-M12 are free for counter-lines.',
+    'Percussion: kick D1, snare D2, hats and shakers D3, crash and ride D4; the soft kit (side-stick, shaker, brush) suits calm tracks.',
+    'Velocity (v0..v15) shapes the tone as well as the loudness: keep accompaniment around v8-v10 and the lead at v11-v13.'
   ]
 }
 
@@ -429,6 +512,21 @@ function chipPlan(chip: ChipId, seed: MoodSeed): { channels: ChannelPlan[]; idio
         { channel: 'C4', role: seed.harmony, part: 'arpeggio or counter-line' },
         { channel: 'C5', role: 'hihat', part: 'hats (noise)' },
         { channel: 'C6', role: 'snare', part: 'snare (noise) / kick' }
+      ]
+      break
+    case 'gm':
+      channels = [
+        { channel: 'M1', role: seed.lead, part: 'lead melody' },
+        { channel: 'M2', role: bass, part: 'bass line' },
+        { channel: 'M3', role: seed.pad, part: 'sustained chords, root and fifth' },
+        { channel: 'M4', role: 'strings', part: 'sustained chords, third (or a second chord layer)' },
+        { channel: 'M5', role: 'flute', part: 'counter-melody or lead double' },
+        { channel: 'M7', role: seed.harmony, part: 'broken chords, arpeggio or stabs' },
+        { channel: 'M8', role: 'bell', part: 'sparkle or counter-line' },
+        { channel: 'D1', role: 'kick', part: 'kick and toms' },
+        { channel: 'D2', role: 'snare', part: 'snare, side-stick and claps' },
+        { channel: 'D3', role: 'hihat', part: 'hats, shaker or triangle' },
+        { channel: 'D4', role: 'crash', part: 'crash or ride cymbal' }
       ]
       break
     case 'ps1':
@@ -492,7 +590,8 @@ const MOOD_ALIASES: Record<string, string> = {
   intro: 'title', store: 'shop', market: 'shop', water: 'underwater', ocean: 'underwater', sea: 'underwater', arabian: 'desert',
   egypt: 'desert', fortress: 'castle', gothic: 'castle', melancholy: 'sad', sorrow: 'sad', emotional: 'sad',
   serene: 'peaceful', tranquil: 'peaceful', quiet: 'peaceful', sleep: 'lullaby', bedtime: 'lullaby', dreamy: 'ambient', drone: 'ambient',
-  mysterious: 'mysterious-calm', enigmatic: 'mysterious-calm', curious: 'mysterious-calm',
+  mysterious: 'mysterious-calm', enigmatic: 'mysterious-calm',
+  whimsical: 'playful', cheerful: 'playful', coffee: 'cafe', jazz: 'cafe', study: 'focus', magic: 'wonder', fairytale: 'storybook', story: 'storybook',
   retrowave: 'synthwave', synth: 'synthwave', '80s': 'synthwave', chase: 'outrun', drive: 'outrun', coldwave: 'darkwave', goth: 'darkwave',
   chillwave: 'dreamwave', dreamsynth: 'dreamwave'
 }
