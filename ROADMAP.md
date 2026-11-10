@@ -56,3 +56,7 @@ Done in code and unit tests; not yet listened to by the user. `compose_track` ge
 ## MDI-16: SNES fidelity "clean" (cut by the user, 2026-11-10)
 
 Not built. The user cut it from HUB-33: the SNES chip keeps its BRR grit as its identity, and `gm` is the clean-sound option. `snes.ts`, the sample bank, `spc700.ts` and the SNES presets are untouched.
+
+## MDI-17: trim .yarnrc.yml (2026-11-10, branch MDI-17_yarnrc-trim)
+
+Done. `.yarnrc.yml` keeps `enableScripts: true` (Electron's postinstall) and `nodeLinker: node-modules`; the git-repo wildcard and the `npmMinimalAgeGate: 0` override that yarn 4.18 wrote during the HUB-33 install are dropped. No code change.
