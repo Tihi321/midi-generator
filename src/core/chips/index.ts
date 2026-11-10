@@ -10,6 +10,7 @@ import { snesProfile } from './snes'
 import { pceProfile } from './pce'
 import { ps1Profile } from './ps1'
 import { dreamcastProfile } from './dreamcast'
+import { gmProfile } from './gm'
 
 export * from './types'
 export { channelDefFor, defineProfile, estimateSampleLength, ruleSeverity, validateCellForChannel, validateCellsFor } from './validate'
@@ -19,6 +20,7 @@ export { SPU_RAM_BYTES, SPU_RESERVED_BYTES, defaultPs1Config, ps1Channels, ps1Vo
 export type { SpuRamUsage } from './ps1'
 export { AICA_RAM_BYTES, aicaRamUsage, defaultDreamcastConfig, dreamcastChannels, dreamcastVoices } from './dreamcast'
 export type { AicaRamUsage } from './dreamcast'
+export { GM_DRUM_CHANNELS, GM_MELODIC_CHANNELS, defaultGmConfig, gmChannels, gmMidiChannel } from './gm'
 
 export const CHIP_PROFILES: Record<ChipId, ChipProfile> = {
   nes: nesProfile,
@@ -27,7 +29,8 @@ export const CHIP_PROFILES: Record<ChipId, ChipProfile> = {
   snes: snesProfile,
   pce: pceProfile,
   ps1: ps1Profile,
-  dreamcast: dreamcastProfile
+  dreamcast: dreamcastProfile,
+  gm: gmProfile
 }
 
 export function isChipId(v: unknown): v is ChipId {
@@ -48,7 +51,8 @@ export function requireChipId(ref: string): ChipId {
     famicom: 'nes', nintendo: 'nes', gameboy: 'gb', dmg: 'gb', megadrive: 'genesis', mega: 'genesis', ym2612: 'genesis',
     sega: 'genesis', supernes: 'snes', sfc: 'snes', spc700: 'snes', pcengine: 'pce', turbografx: 'pce', turbografx16: 'pce', tg16: 'pce', huc6280: 'pce',
     psx: 'ps1', playstation: 'ps1', playstation1: 'ps1', spu: 'ps1',
-    dc: 'dreamcast', aica: 'dreamcast', segadreamcast: 'dreamcast'
+    dc: 'dreamcast', aica: 'dreamcast', segadreamcast: 'dreamcast',
+    soundfont: 'gm', generalmidi: 'gm', gmsoundfont: 'gm'
   }
   const hit = aliases[k]
   if (hit) return hit

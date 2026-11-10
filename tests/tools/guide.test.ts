@@ -83,8 +83,8 @@ describe('LLM guide for PS1 and Dreamcast', () => {
     for (const id of MOOD_IDS) expect(GUIDE, id).toMatch(new RegExp('^\\| ' + id + ' \\|', 'm'))
   })
 
-  it('the chip list of the guide and the effect row cover all seven chips', () => {
-    expect(CHIP_IDS).toHaveLength(7)
+  it('the chip list of the guide and the effect row cover all eight chips', () => {
+    expect(CHIP_IDS).toHaveLength(8)
     expect(GUIDE).toContain('PlayStation SPU, Dreamcast AICA')
     expect(GUIDE).toMatch(/\| `Exx` \| Effect send on \(01\) \/ off \(00\) for the channel: SNES echo, PS1 reverb, Dreamcast DSP/)
     expect(GUIDE).toContain('`synthwave`, `outrun`, `darkwave` and `dreamwave`')

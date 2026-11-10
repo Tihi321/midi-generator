@@ -9,8 +9,8 @@
 //    `song.patternLength` rows long (a Dxx effect can end a row early).
 //  - A note sounds from its row until the next note, note-off ('off') or release ('rel') on that channel.
 
-export type ChipId = 'nes' | 'gb' | 'genesis' | 'snes' | 'pce' | 'ps1' | 'dreamcast'
-export const CHIP_IDS: readonly ChipId[] = ['nes', 'gb', 'genesis', 'snes', 'pce', 'ps1', 'dreamcast']
+export type ChipId = 'nes' | 'gb' | 'genesis' | 'snes' | 'pce' | 'ps1' | 'dreamcast' | 'gm'
+export const CHIP_IDS: readonly ChipId[] = ['nes', 'gb', 'genesis', 'snes', 'pce', 'ps1', 'dreamcast', 'gm']
 
 export type PitchClass = 'C' | 'C#' | 'D' | 'D#' | 'E' | 'F' | 'F#' | 'G' | 'G#' | 'A' | 'A#' | 'B'
 
@@ -58,7 +58,7 @@ export interface Pattern {
 export type PatternKey = `${string}:${number}`
 
 export type ChannelKind =
-  | 'pulse' | 'triangle' | 'noise' | 'dpcm' | 'wave' | 'fm' | 'psg-square' | 'psg-noise' | 'sample' | 'pce-wave'
+  | 'pulse' | 'triangle' | 'noise' | 'dpcm' | 'wave' | 'fm' | 'psg-square' | 'psg-noise' | 'sample' | 'pce-wave' | 'gm-melodic' | 'gm-drums'
 
 export interface ChannelState {
   /** Fixed by the chip profile, e.g. 'P1', 'TR', 'NO', 'F1', 'S1', 'V3', 'C5'. */
@@ -176,7 +176,18 @@ export interface DreamcastConfig {
   voices: (typeof DC_VOICE_COUNTS)[number]
   dsp: DcDsp
 }
-export type ChipConfig = NesConfig | GbConfig | GenesisConfig | SnesConfig | PceConfig | Ps1Config | DreamcastConfig
+/** General MIDI SoundFont chip: the SoundFont file lives in ~/ChiptuneStudio/soundfonts (never in the song). */
+export interface GmConfig {
+  chip: 'gm'
+  /** SoundFont file name in the soundfonts folder. */
+  soundfont: string
+  /** 0..1, the default reverb send (CC91) of every channel. */
+  reverb: number
+  /** 0..1, the chorus send (CC93) of every channel. */
+  chorus: number
+}
+export const GM_DEFAULT_SOUNDFONT = 'GeneralUser-GS.sf2'
+export type ChipConfig = NesConfig | GbConfig | GenesisConfig | SnesConfig | PceConfig | Ps1Config | DreamcastConfig | GmConfig
 
 // ---------------------------------------------------------------------------------------------
 // Instruments
@@ -228,7 +239,7 @@ export interface InstrumentBase {
 export type InstrumentKind =
   | 'nes-pulse' | 'nes-tri' | 'nes-noise' | 'psg' | 'psg-noise'
   | 'gb-pulse' | 'gb-wave' | 'gb-noise'
-  | 'pce-wave' | 'fm' | 'snes-sample' | 'sample' | 'psx-sample' | 'aica-sample'
+  | 'pce-wave' | 'fm' | 'snes-sample' | 'sample' | 'psx-sample' | 'aica-sample' | 'sf-program' | 'sf-drum'
 
 export interface MacroInstrument extends InstrumentBase {
   kind: 'nes-pulse' | 'nes-tri' | 'nes-noise' | 'psg' | 'psg-noise'
@@ -387,6 +398,23 @@ export interface AicaSampleInstrument extends InstrumentBase {
   macros?: Macros
 }
 
+/** General MIDI melodic voice: a SoundFont program (bank 0 = the GM sound, other banks are SoundFont variations). */
+export interface SfProgramInstrument extends InstrumentBase {
+  kind: 'sf-program'
+  /** GM program 0..127. */
+  program: number
+  /** Bank select MSB 0..127 (default 0). */
+  bank?: number
+}
+/** General MIDI percussion hit: a key on the drum channel; the cell's note is ignored. */
+export interface SfDrumInstrument extends InstrumentBase {
+  kind: 'sf-drum'
+  /** GM percussion key 27..87. */
+  key: number
+  /** Drum kit (program change on the drum channel): 0 standard, 8 room, 16 power, 24 electronic, 32 jazz, 40 brush, 48 orchestra. */
+  kit?: number
+}
+
 /** Raw sample playback: NES DPCM, Genesis F6 DAC, PCE DDA. */
 export interface SampleInstrument extends InstrumentBase {
   kind: 'sample'
@@ -406,6 +434,8 @@ export type Instrument =
   | SampleInstrument
   | PsxSampleInstrument
   | AicaSampleInstrument
+  | SfProgramInstrument
+  | SfDrumInstrument
 
 /** A sample: either generated from a recipe (regenerated and cached on load) or user PCM. */
 export interface SampleSlot {

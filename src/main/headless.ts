@@ -7,6 +7,7 @@ import type { ToolServices } from '../tools'
 import { AssetStore } from './assets'
 import { type McpHttpServer, createMcpHttpServer } from './mcp'
 import { createNodeServices, defaultRoot } from './services'
+import { createSoundFontService } from './soundfont'
 import type { McpStatus } from '../shared/mcp'
 
 export interface HeadlessOptions {
@@ -27,13 +28,15 @@ export interface HeadlessHost {
 /** The tool host of the headless server: a fresh song session, the full registry and Node services. */
 export function createHeadlessHost(root: string = defaultRoot()): HeadlessHost {
   const node = createNodeServices(root)
+  const soundfont = createSoundFontService(root)
   const services: ToolServices = {
     writeFile: node.writeFile,
     readFile: node.readFile,
     resolveExportPath: node.resolveExportPath,
     resolveProjectPath: node.resolveProjectPath,
     encodeAudio: node.encodeAudio,
-    audio: createInProcessAudio(),
+    audio: createInProcessAudio(soundfont),
+    soundfont,
     assets: new AssetStore(node.paths.assets)
   }
   const session = new SongSession()

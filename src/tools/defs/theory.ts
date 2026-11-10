@@ -30,7 +30,7 @@ export const theoryTools = [
       'A composition recipe for a game-music mood: BPM range, keys, scales, groove, chord progressions and drum styles that fit, the arrangement (sections with bars and the loop point), which role each channel plays on the chip, and concrete techniques. Moods: heroic, battle, boss, spooky, dungeon, chill, town, overworld, victory, game-over, title, shop, underwater, desert, castle, sad, the calm ones (ambient, lullaby, peaceful, mysterious-calm) and the synth moods synthwave, outrun, darkwave, dreamwave (aliases like "epic", "cave", "village", "retrowave", "chase" work). Without "mood" it lists all moods. The channel plan covers all seven chips (nes, gb, genesis, snes, pce, ps1, dreamcast). Call it before new_song. Example: {"mood":"spooky","chip":"gb"}.',
     input: obj({
       mood: z.string().min(1).optional().describe('Mood id or alias. Omit to list the moods.'),
-      chip: z.string().optional().describe('Chip for the channel plan: nes, gb, genesis, snes, pce, ps1, dreamcast (default: the song\'s chip).')
+      chip: z.string().optional().describe('Chip for the channel plan: nes, gb, genesis, snes, pce, ps1, dreamcast, gm (default: the song\'s chip).')
     }),
     handler: (args, ctx) => {
       if (!args.mood) {

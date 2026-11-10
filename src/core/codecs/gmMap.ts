@@ -16,7 +16,7 @@ export const GM_DRUM_NOTES: Record<'kick' | 'snare' | 'hihat' | 'openhat' | 'cra
 }
 
 /** Channel kinds that play noise or samples: their notes become GM drum hits. */
-export const DRUM_CHANNEL_KINDS: readonly ChannelKind[] = ['noise', 'psg-noise', 'dpcm']
+export const DRUM_CHANNEL_KINDS: readonly ChannelKind[] = ['noise', 'psg-noise', 'dpcm', 'gm-drums']
 
 const NOISE_KINDS = new Set(['nes-noise', 'gb-noise', 'psg-noise'])
 

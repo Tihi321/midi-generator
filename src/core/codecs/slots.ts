@@ -54,7 +54,9 @@ const PLANS: Record<ChipId, (cfg: ChipConfig) => { bass: string; lead: string; h
   snes: () => ({ bass: 'V1', lead: 'V4', harmony: ['V2', 'V3', 'V5', 'V6'], drumLow: 'V7', drumHigh: 'V8', drumChannels: ['V7', 'V8'], spare: ['V7', 'V8'] }),
   pce: () => ({ bass: 'C1', lead: 'C2', harmony: ['C3', 'C4'], drumLow: 'C5', drumHigh: 'C6', drumChannels: ['C5', 'C6'], spare: ['C5', 'C6'] }),
   ps1: () => SAMPLE_CHIP_PLAN,
-  dreamcast: () => SAMPLE_CHIP_PLAN
+  dreamcast: () => SAMPLE_CHIP_PLAN,
+  // gm: bass M2, lead M1, harmony M3..M12, drums D1..D4 (D1 low, D2 high)
+  gm: () => ({ bass: 'M2', lead: 'M1', harmony: ['M3', 'M4', 'M5', 'M6', 'M7', 'M8', 'M9', 'M10', 'M11', 'M12'], drumLow: 'D1', drumHigh: 'D2', drumChannels: ['D1', 'D2', 'D3', 'D4'], spare: ['D3', 'D4'] })
 }
 
 /** Channel plan for a chip. With `reserveDrums` false the drum-capable channels of SNES/PCE join the melodic pool. */

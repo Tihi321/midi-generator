@@ -94,7 +94,9 @@ const instrumentSchema = z.discriminatedUnion('kind', [
     format: z.enum(['pcm16', 'pcm8', 'adpcm']),
     aeg: z.object({ ar: z.number(), d1r: z.number(), d2r: z.number(), rr: z.number(), dl: z.number(), krs: z.number().optional() }),
     filter: aicaFilter.optional(), lfo: aicaLfo.optional(), send: z.number(), macros: macros.optional()
-  })
+  }),
+  z.object({ ...base, kind: z.literal('sf-program'), program: int, bank: int.optional() }),
+  z.object({ ...base, kind: z.literal('sf-drum'), key: int, kit: int.optional() })
 ])
 
 const sampleSchema = z.object({
@@ -128,7 +130,8 @@ const chipConfigSchema = z.discriminatedUnion('chip', [
       preset: z.enum(DC_DSP_PRESETS), mix: z.number(), time: z.number(), feedback: z.number(),
       chorusRate: z.number(), chorusDepth: z.number(), delayMs: z.number()
     })
-  })
+  }),
+  z.object({ chip: z.literal('gm'), soundfont: z.string(), reverb: z.number(), chorus: z.number() })
 ])
 
 const rowEntry = z.array(z.union([z.number(), z.string(), z.null()])).min(4)

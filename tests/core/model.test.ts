@@ -17,7 +17,8 @@ describe('createSong', () => {
       snes: 'V1,V2,V3,V4,V5,V6,V7,V8',
       pce: 'C1,C2,C3,C4,C5,C6',
       ps1: 'V1,V2,V3,V4,V5,V6,V7,V8,V9,V10,V11,V12,V13,V14,V15,V16',
-      dreamcast: 'V1,V2,V3,V4,V5,V6,V7,V8,V9,V10,V11,V12,V13,V14,V15,V16'
+      dreamcast: 'V1,V2,V3,V4,V5,V6,V7,V8,V9,V10,V11,V12,V13,V14,V15,V16',
+      gm: 'M1,M2,M3,M4,M5,M6,M7,M8,M9,M10,M11,M12,D1,D2,D3,D4'
     }
     for (const chip of CHIP_IDS) {
       const s = createSong({ chip })

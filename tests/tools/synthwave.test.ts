@@ -88,6 +88,7 @@ describe('synth moods', () => {
         expect(validateSong(r.song).filter((i) => i.severity === 'error'), `${m.id}/${chip}`).toEqual([])
         expect(r.channels.length, `${m.id}/${chip}`).toBeGreaterThanOrEqual(4)
         expect(r.parts.some((p) => p.includes('drums')), `${m.id}/${chip} drums`).toBe(true)
+        if (chip === 'gm') continue // needs the SoundFont file (tests/core/gm.test.ts renders gm with a generated one)
         const out = renderSong(r.song)
         expect(rms(out.L), `${m.id}/${chip} audible`).toBeGreaterThan(0.005)
       }

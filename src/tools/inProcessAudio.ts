@@ -3,11 +3,13 @@
 // render Worker + AudioWorklet instead (src/renderer/audioService.ts), which runs the same core.
 
 import { renderSong } from '../core'
-import type { AudioService } from './services'
+import type { AudioService, SoundFontService } from './services'
+import { ensureSoundFontLoaded } from './soundfontLoad'
 
-export function createInProcessAudio(): AudioService {
+export function createInProcessAudio(soundfont?: SoundFontService): AudioService {
   return {
     render: async (song, opts = {}) => {
+      await ensureSoundFontLoaded(soundfont, song)
       const r = renderSong(song, { sampleRate: opts.sampleRate ?? 44100, loops: opts.loops ?? 1, fadeOutSec: opts.fadeOutSec ?? 0, stems: opts.stems ?? false })
       return { sampleRate: r.sampleRate, L: r.L, R: r.R, stems: r.stems, loopStart: r.loopStart, loopEnd: r.loopEnd }
     },

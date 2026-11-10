@@ -94,6 +94,22 @@ export const DRUM_STYLES: DrumStyle[] = [
   S('title-pulse', 'Title pulse', 'Gentle kick with offbeat hats for a title screen.', ['title', 'overworld'], [90, 120], {
     kick: 'x.......x.......', hihat: '..x...x...x...x.', snare: '....x.......x...'
   }),
+  // ---- kids and learning moods (MDI-15): light patterns for the new moods only
+  S('playful-skip', 'Playful skip', 'Light skipping beat: kick on 1 and 3, claps on 2 and 4, off-beat ticks.', ['playful', 'curious'], [100, 126], {
+    kick: 'x.......x.......', clap: '....x.......x...', hihat: '..x...x...x...x.'
+  }, FILL_TOM),
+  S('focus-tick', 'Focus tick', 'Almost nothing: a soft kick on 1, a rim tick on 3 and quiet quarter ticks.', ['focus', 'curious', 'wonder'], [76, 104], {
+    kick: 'x...............', snare: '........x.......', hihat: 'x...x...x...x...'
+  }, FILL_TOM),
+  S('cafe-bossa', 'Cafe bossa', 'Bossa nova: syncopated kick, cross-stick on the clave pattern and steady eighth ticks.', ['cafe'], [88, 112], {
+    kick: 'x..x..x.x..x..x.', snare: '..x..x...x..x...', hihat: 'x.x.x.x.x.x.x.x.'
+  }, FILL_TOM),
+  S('trot', 'Trot', 'A light march: kick on every other beat, snare on 2 and 4, eighth ticks: the adventure goes on.', ['adventure-light', 'playful'], [104, 128], {
+    kick: 'x.......x.......', snare: '....x.......x...', hihat: 'x.x.x.x.x.x.x.x.'
+  }),
+  S('storybook-soft', 'Storybook soft', 'A shaker-like tick on the off-beats and a very soft kick on 1.', ['storybook', 'wonder'], [72, 100], {
+    kick: 'x...............', hihat: '..x...x...x...x.'
+  }, FILL_TOM),
   // ---- synth moods (MDI-10): tagged only with synth moods, so they are the only styles of those moods (the first is the composer's pick).
   // The crash lane is on every bar here; the synth composer plays it on the first bar of each 4-bar phrase.
   S('synthwave-gated', 'Synthwave gated', 'Kick on 1, the "and" of 2 and 3, gated snare on 2 and 4, eighth-note hats, a crash on the first bar of a phrase; toms in the fill.', ['synthwave'], [96, 118], {

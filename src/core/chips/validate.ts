@@ -143,7 +143,9 @@ export function validateCellForChannel(
         push('error', `effect ${fx.code}${fx.param}: parameter must be an integer 0..255 (two hex digits).`, 'fx', fi)
         continue
       }
-      if (!def.effects.includes(fx.code)) {
+      if (!def.effects.includes(fx.code) && fx.code === '0' && profile.id === 'gm') {
+        push(rule, `effect ${label} (arpeggio) is not available on ${def.id}: a General MIDI voice plays one note; put the chord tones on separate channels (M1..M12) instead`, 'fx', fi)
+      } else if (!def.effects.includes(fx.code)) {
         push(rule, `effect ${label} is not available on ${def.id} (${profile.label} ${def.name}); allowed effects: ${def.effects.join(' ')}`, 'fx', fi)
       }
     }

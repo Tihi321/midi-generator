@@ -6,7 +6,7 @@ import { IPC, type ChiptuneStudioApi, type ToolCancelRequest, type ToolExecuteRe
 import { type ToolRegistry, type ToolSession, createToolHost } from '../tools/registry'
 import { createInProcessAudio } from '../tools/inProcessAudio'
 import { ASSETS_IPC } from '../shared/assets'
-import type { AssetData, AssetMeta, AssetService, AudioFormat, AudioService, EncodeResult, StudioHost, ToolServices } from '../tools/services'
+import type { AssetData, AssetMeta, AssetService, AudioFormat, AudioService, EncodeResult, SoundFontService, SoundFontStatus, StudioHost, ToolServices } from '../tools/services'
 
 function defaultApi(): ChiptuneStudioApi {
   return (globalThis as unknown as { chiptuneStudio: ChiptuneStudioApi }).chiptuneStudio
@@ -34,6 +34,28 @@ export function createIpcAssets(api: ChiptuneStudioApi = defaultApi()): AssetSer
   }
 }
 
+/** The gm SoundFont read by main over IPC; the bytes are kept for the session once loaded (the file does not change while the app runs). */
+const soundFontServices = new WeakMap<ChiptuneStudioApi, SoundFontService>()
+export function createIpcSoundFont(api: ChiptuneStudioApi = defaultApi()): SoundFontService {
+  const existing = soundFontServices.get(api)
+  if (existing) return existing
+  const loaded = new Map<string, Uint8Array>()
+  const service: SoundFontService = {
+    status: (file) => api.invoke<SoundFontStatus>(IPC.soundfontStatus, file ?? null),
+    load: async (file) => {
+      const key = file ?? ''
+      const hit = loaded.get(key)
+      if (hit) return hit
+      const r = await api.invoke<Uint8Array | ArrayBuffer>(IPC.soundfontLoad, file ?? null)
+      const bytes = r instanceof Uint8Array ? r : new Uint8Array(r)
+      loaded.set(key, bytes)
+      return bytes
+    }
+  }
+  soundFontServices.set(api, service)
+  return service
+}
+
 /** ToolServices that call the main process (src/main/services.ts) through `window.chiptuneStudio.invoke`. */
 export function createIpcServices(api: ChiptuneStudioApi = defaultApi(), audio: AudioService = createHeadlessAudio(), studio?: StudioHost): ToolServices {
   return {
@@ -46,6 +68,7 @@ export function createIpcServices(api: ChiptuneStudioApi = defaultApi(), audio: 
     resolveProjectPath: (name, dir) => api.invoke<string>(IPC.fsResolveProjectPath, name, dir),
     audio,
     assets: createIpcAssets(api),
+    soundfont: createIpcSoundFont(api),
     encodeAudio: (wav: Uint8Array, path: string, format: AudioFormat) => api.invoke<EncodeResult>(IPC.fsEncodeAudio, wav, path, format),
     ...(studio ? { studio } : {})
   }

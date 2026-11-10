@@ -16,7 +16,13 @@ export {
   isChipPlayable,
   createVoice,
   SilentVoice,
-  BlipVoice
+  BlipVoice,
+  SOUNDFONT_MISSING_MESSAGE,
+  SOUNDFONT_URL,
+  describeSoundFont,
+  getSoundFontBytes,
+  hasSoundFont,
+  setSoundFont
 } from './chips'
 export {
   Mixer,

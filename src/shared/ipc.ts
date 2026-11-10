@@ -29,6 +29,10 @@ export const IPC = {
   fsResolveProjectPath: 'fs:resolveProjectPath',
   /** (wav: Uint8Array, path: string, format: 'ogg' | 'mp3' | 'wav') => EncodeResult (ffmpeg in main) */
   fsEncodeAudio: 'fs:encodeAudio',
+  /** (file?: string) => SoundFontStatus: the gm chip's SoundFont in <data folder>/soundfonts */
+  soundfontStatus: 'soundfont:status',
+  /** (file?: string) => Uint8Array: the SoundFont bytes; rejects with the path and download address when missing */
+  soundfontLoad: 'soundfont:load',
   // Opening a song from the command line / a second launch / a tool (see OpenSongRequest)
   /** main -> renderer push: OpenSongRequest */
   appOpen: 'app:open',

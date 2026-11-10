@@ -5,7 +5,10 @@
 //  - The playhead is reported by the worklet (~30 Hz) to listeners; it never touches the undo history.
 //  - Nothing here touches the DOM at import time, so the module is safe to import in Node tests.
 
+import { getSoundFontBytes } from '../../core/synth'
 import type { Song } from '../../core/types'
+import { ensureSoundFontLoaded } from '../../tools/soundfontLoad'
+import { createIpcSoundFont } from '../toolBridgeClient'
 import type { SongSession } from '../../tools/session'
 import type { PlaybackPosition } from '../../tools/services'
 import { type FromWorklet, type ToWorklet, WORKLET_NAME } from './protocol'
@@ -18,6 +21,8 @@ export interface EngineInfo {
   sampleRate: number
   /** Position reports received from the worklet since the last play (proves the audio thread runs). */
   reports: number
+  /** Times the gm SoundFont was posted to the worklet (it is sent once per loaded file). */
+  soundfontPosts: number
 }
 
 const SYNC_DELAY_MS = 120
@@ -36,6 +41,8 @@ export class AudioEngine {
   private volume = 0.8
   private mutes: (boolean | undefined)[] = []
   private reports = 0
+  private postedSoundFont: ArrayBuffer | null = null
+  private soundfontPosts = 0
 
   // ------------------------------------------------------------ wiring
 
@@ -102,6 +109,7 @@ export class AudioEngine {
     node.connect(ctx.destination)
     this.ctx = ctx
     this.node = node
+    this.postedSoundFont = null
     this.post({ type: 'volume', value: this.volume })
     this.post({ type: 'loop', loop: this.loop })
     this.mutes.forEach((m, i) => this.post({ type: 'mute', index: i, muted: m }))
@@ -129,7 +137,7 @@ export class AudioEngine {
   }
 
   info(): EngineInfo {
-    return { state: this.ctx ? this.ctx.state : 'none', sampleRate: this.ctx?.sampleRate ?? 0, reports: this.reports }
+    return { state: this.ctx ? this.ctx.state : 'none', sampleRate: this.ctx?.sampleRate ?? 0, reports: this.reports, soundfontPosts: this.soundfontPosts }
   }
 
   // ------------------------------------------------------------ transport
@@ -154,6 +162,7 @@ export class AudioEngine {
     }
     if (opts.loop !== undefined) this.loop = opts.loop
     await this.ensureRunning()
+    await this.ensureSoundFont(song)
     this.reports = 0
     this.syncedVersion = session.history.version
     this.pos = { playing: true, order, row: Math.max(0, Math.min(song.patternLength - 1, row)), seconds: 0 }
@@ -194,9 +203,22 @@ export class AudioEngine {
     this.post({ type: 'mute', index, muted })
   }
 
+  /** For a gm song: load the SoundFont (over IPC, once) and post it to the worklet (once per file). */
+  private async ensureSoundFont(song: Song): Promise<void> {
+    if (song.chip !== 'gm') return
+    await ensureSoundFontLoaded(createIpcSoundFont(), song)
+    const bytes = getSoundFontBytes()
+    if (bytes && bytes !== this.postedSoundFont) {
+      this.post({ type: 'soundfont', bytes })
+      this.postedSoundFont = bytes
+      this.soundfontPosts++
+    }
+  }
+
   /** Play a one-shot audition song (see lib/audition.ts) on top of whatever is playing. */
   async audition(song: Song): Promise<void> {
     await this.ensureRunning()
+    await this.ensureSoundFont(song)
     this.post({ type: 'audition', song })
   }
 

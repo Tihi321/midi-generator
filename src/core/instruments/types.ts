@@ -19,6 +19,8 @@ export type {
   PceWaveInstrument,
   PsxAdsr,
   PsxSampleInstrument,
+  SfDrumInstrument,
+  SfProgramInstrument,
   Role,
   SampleInstrument,
   SnesEnvelope,
@@ -31,7 +33,7 @@ export type {
 
 export const INSTRUMENT_KINDS: readonly InstrumentKind[] = [
   'nes-pulse', 'nes-tri', 'nes-noise', 'psg', 'psg-noise', 'gb-pulse', 'gb-wave', 'gb-noise',
-  'pce-wave', 'fm', 'snes-sample', 'sample', 'psx-sample', 'aica-sample'
+  'pce-wave', 'fm', 'snes-sample', 'sample', 'psx-sample', 'aica-sample', 'sf-program', 'sf-drum'
 ]
 
 /** Instrument kinds each chip can host at all (before looking at individual channels). */
@@ -42,7 +44,8 @@ export const KINDS_BY_CHIP: Record<ChipId, readonly InstrumentKind[]> = {
   snes: ['snes-sample'],
   pce: ['pce-wave', 'sample'],
   ps1: ['psx-sample'],
-  dreamcast: ['aica-sample']
+  dreamcast: ['aica-sample'],
+  gm: ['sf-program', 'sf-drum']
 }
 
 /** The sample slot id an instrument plays (snes-sample, sample, psx-sample, aica-sample), or undefined for other kinds. */

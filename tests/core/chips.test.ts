@@ -13,7 +13,7 @@ function put(song: Song, channel: string, row: number, cell: object, pattern = 0
 }
 
 describe('chip registry', () => {
-  it('lists all seven chips with channel data for the LLM', () => {
+  it('lists all eight chips with channel data for the LLM', () => {
     const chips = listChips()
     expect(chips.map((c) => c.id)).toEqual([...CHIP_IDS])
     for (const c of chips) {
@@ -22,7 +22,7 @@ describe('chip registry', () => {
       expect(c.era).toBeTruthy()
     }
     expect(chips.find((c) => c.id === 'genesis')!.channels).toHaveLength(10)
-    expect(chips.map((c) => c.id).slice(-2)).toEqual(['ps1', 'dreamcast'])
+    expect(chips.map((c) => c.id).slice(-3)).toEqual(['ps1', 'dreamcast', 'gm'])
   })
   it('defaultChipConfig matches the chip and requireChipId accepts aliases', () => {
     for (const id of CHIP_IDS) expect(defaultChipConfig(id).chip).toBe(id)

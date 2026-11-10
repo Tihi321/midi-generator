@@ -1,7 +1,7 @@
 // Offline render worker: renders a song snapshot with renderSong and returns the Float32 buffers (transferred).
 // renderSong has no progress callback, so progress is coarse: started, rendered, delivered.
 
-import { renderSong } from '../../core/synth'
+import { renderSong, setSoundFont } from '../../core/synth'
 import type { FromRenderWorker, ToRenderWorker } from './protocol'
 
 declare const self: {
@@ -14,6 +14,7 @@ self.onmessage = (e: MessageEvent<ToRenderWorker>) => {
   if (msg.type !== 'render') return
   const { id, song, opts } = msg
   try {
+    if (msg.soundfont) setSoundFont(msg.soundfont)
     self.postMessage({ type: 'progress', id, fraction: 0.05, label: 'Rendering' })
     const r = renderSong(song, {
       sampleRate: opts.sampleRate ?? 44100,

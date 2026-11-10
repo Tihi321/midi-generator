@@ -219,6 +219,14 @@ export function validateInstrument(inst: Instrument): string[] {
     case 'aica-sample':
       checkAica(inst, out)
       break
+    case 'sf-program':
+      if (!intIn(inst.program, 0, 127)) out.push(`program ${String(inst.program)} must be a General MIDI program 0..127.`)
+      if (inst.bank !== undefined && !intIn(inst.bank, 0, 127)) out.push(`bank ${String(inst.bank)} must be an integer 0..127 (bank select MSB; 0 = the General MIDI sound).`)
+      break
+    case 'sf-drum':
+      if (!intIn(inst.key, 27, 87)) out.push(`key ${String(inst.key)} must be a General MIDI percussion key 27..87 (36 kick, 38 snare, 42 closed hat).`)
+      if (inst.kit !== undefined && !intIn(inst.kit, 0, 127)) out.push(`kit ${String(inst.kit)} must be a drum kit program 0..127 (0 standard, 40 brush).`)
+      break
   }
   for (const rule of kindRules.get(inst.kind) ?? []) out.push(...rule(inst))
   if ('macros' in inst) out.push(...validateMacros(inst.macros))
