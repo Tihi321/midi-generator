@@ -8,7 +8,7 @@ const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 /** Add / edit an OpenAI-compatible provider (saved in config/providers.md as `custom: true`, key in the credential store). */
 export function ProviderForm({ edit, modelIds, onDone }: { edit?: LlmProviderInfo; modelIds?: string[]; onDone: (savedId?: string) => void }) {
   const [name, setName] = useState(edit?.name ?? '')
-  const [baseUrl, setBaseUrl] = useState(edit?.baseUrl ?? 'http://127.0.0.1:7461/v1')
+  const [baseUrl, setBaseUrl] = useState(edit?.baseUrl ?? 'http://127.0.0.1:8787/v1')
   const [apiKey, setApiKey] = useState('')
   const [free, setFree] = useState(edit?.local ?? true)
   const [jsonSchema, setJsonSchema] = useState(edit?.jsonSchema ?? false)
@@ -57,7 +57,7 @@ export function ProviderForm({ edit, modelIds, onDone }: { edit?: LlmProviderInf
         </label>
         <label>
           <span>Base URL</span>
-          <input type="text" value={baseUrl} placeholder="http://127.0.0.1:7461/v1" onChange={(e) => setBaseUrl(e.target.value)} data-testid="provider-url" />
+          <input type="text" value={baseUrl} placeholder="http://127.0.0.1:8787/v1" onChange={(e) => setBaseUrl(e.target.value)} data-testid="provider-url" />
         </label>
         <label>
           <span>API key</span>

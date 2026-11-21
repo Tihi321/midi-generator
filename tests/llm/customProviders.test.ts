@@ -8,7 +8,7 @@ import { checkBaseUrl, customKeyName, customProviderSlug, removeCustomEntry, sav
 import { parseMd } from '../../src/llm/md'
 import { providersSchema } from '../../src/llm/config'
 import { ModelRegistry } from '../../src/llm/registry'
-import { migrateSeedProviders, migrateStrataLoaded, SEED_STATE_FILE } from '../../src/llm/seedMigrate'
+import { migrateAcpPort, migrateSeedProviders, migrateStrataLoaded, SEED_STATE_FILE } from '../../src/llm/seedMigrate'
 import { LlmService, type KeyOps } from '../../src/main/llm'
 
 const seedDir = fileURLToPath(new URL('../../seed/config', import.meta.url))
@@ -104,7 +104,12 @@ describe('seed migration', () => {
     const text = await readFile(file, 'utf8')
     expect(text).toContain('# edited by hand')
     const acp = (parseMd(text).data as { providers: Record<string, unknown>[] }).providers.find((p) => p.id === 'acp')
-    expect(acp).toMatchObject({ kind: 'openai-compat', name: 'ACP proxy', enabled: false, local: true, base_url: 'http://127.0.0.1:7461/v1', concurrency: 2, json_schema: false, discover: true, models: [] })
+    expect(acp).toMatchObject({ kind: 'openai-compat', name: 'ACP proxy', enabled: true, local: true, base_url: 'http://127.0.0.1:8787/v1', concurrency: 4, json_schema: false, discover: true, discover_skip: ['qwen-image', 'nomic-embed'] })
+    // MDI-18: the six local rows are all JSON-action mode, LOCAL is the strata one
+    const models = (acp as { models: { id: string; tools: boolean }[] }).models
+    expect(models).toHaveLength(6)
+    expect(models.every((m) => m.tools === false)).toBe(true)
+    expect(models[0]!.id).toBe('strata/qwen3.8-flash-next-unsloth-ud-iq4_xs')
     expect(JSON.parse(await readFile(path.join(dir, SEED_STATE_FILE), 'utf8')).providers).toEqual(['acp'])
     // idempotent
     expect(await migrateSeedProviders(dir, seedDir)).toEqual([])
@@ -176,6 +181,35 @@ describe('seed migration', () => {
     }
   })
 
+  it('acp-port-8787-v1 moves only the exact old acp URL, once, keeps other values and edits', async () => {
+    const old = (url: string): string => `---
+kind: providers
+providers:
+  - id: acp
+    kind: openai-compat
+    base_url: ${url} # mine
+    models: []
+---
+# body
+`
+    await writeFile(file, old('http://127.0.0.1:7461/v1'))
+    expect(await migrateAcpPort(dir)).toEqual({ changed: ['providers.md'], warnings: [] })
+    expect(await readFile(file, 'utf8')).toBe(old('http://127.0.0.1:8787/v1'))
+    expect((JSON.parse(await readFile(path.join(dir, SEED_STATE_FILE), 'utf8')) as { migrations: string[] }).migrations).toEqual(['acp-port-8787-v1'])
+    await writeFile(file, old('http://127.0.0.1:7461/v1')) // the user sets it back: not touched again
+    expect(await migrateAcpPort(dir)).toEqual({ changed: [], warnings: [] })
+    expect(await readFile(file, 'utf8')).toBe(old('http://127.0.0.1:7461/v1'))
+    // another value is kept; a file that can't be parsed is left alone with a warning and not recorded
+    await rm(path.join(dir, SEED_STATE_FILE))
+    await writeFile(file, old('http://10.0.0.5:7461/v1'))
+    expect((await migrateAcpPort(dir)).changed).toEqual([])
+    expect(await readFile(file, 'utf8')).toBe(old('http://10.0.0.5:7461/v1'))
+    await rm(path.join(dir, SEED_STATE_FILE))
+    await writeFile(file, 'no front matter')
+    expect((await migrateAcpPort(dir)).warnings).toHaveLength(1)
+    expect(existsSync(path.join(dir, SEED_STATE_FILE))).toBe(false)
+  })
+
   it('does nothing without a seed folder', async () => {
     await writeFile(file, OLD)
     expect(await migrateSeedProviders(dir, undefined)).toEqual([])
@@ -185,7 +219,7 @@ describe('seed migration', () => {
 const listing = { data: [{ id: 'codex/gpt-5.6-luna' }, { id: 'antigravity/gemini-3.8-flash' }] }
 
 describe('acp discovery and the LlmService form commands', () => {
-  const fetchImpl = (async (url: string) => (String(url).startsWith('http://127.0.0.1:7461/v1/models') ? new Response(JSON.stringify(listing)) : new Response('', { status: 404 }))) as unknown as typeof fetch
+  const fetchImpl = (async (url: string) => (String(url).startsWith('http://127.0.0.1:8787/v1/models') ? new Response(JSON.stringify(listing)) : new Response('', { status: 404 }))) as unknown as typeof fetch
 
   function keys() {
     const store = new Map<string, string>()
@@ -193,14 +227,13 @@ describe('acp discovery and the LlmService form commands', () => {
     return { ops, store }
   }
 
-  it('the seeded acp provider discovers ids with slashes once enabled', async () => {
+  it('the seeded acp provider is on and discovers ids with slashes', async () => {
     await writeFile(path.join(dir, 'roles.md'), '---\nkind: roles\nroles: {}\n---\n')
     await writeFile(file, await readFile(path.join(seedDir, 'providers.md'), 'utf8'))
-    await setEntryEnabled(file, 'acp', true)
     const registry = new ModelRegistry(dir, { keys: () => undefined, fetchImpl })
     await registry.load()
     const p = registry.providers.get('acp')!
-    expect(p).toMatchObject({ name: 'ACP proxy', custom: false, available: true, local: true, jsonSchema: false, concurrency: 2, discover: true })
+    expect(p).toMatchObject({ name: 'ACP proxy', custom: false, available: true, local: true, jsonSchema: false, concurrency: 4, discover: true })
     expect(await registry.discover()).toContainEqual({ provider: 'acp', found: 2 })
     expect(registry.getModel('acp/codex/gpt-5.6-luna')).toMatchObject({ id: 'codex/gpt-5.6-luna', source: 'discovered' })
     expect(registry.getModel('acp/antigravity/gemini-3.8-flash')).toBeDefined()
@@ -210,25 +243,25 @@ describe('acp discovery and the LlmService form commands', () => {
     const { ops, store } = keys()
     const svc = new LlmService({ seedDir, configDir: path.join(dir, 'config'), dataDir: dir, keys: ops, discover: false, fetchImpl })
     const first = await svc.overview()
-    expect(first.providers.find((p) => p.id === 'acp')).toMatchObject({ enabled: false, custom: false, name: 'ACP proxy', baseUrl: 'http://127.0.0.1:7461/v1' })
-    expect(await svc.testProvider({ baseUrl: 'http://127.0.0.1:7461/v1' })).toEqual({ ok: true, count: 2 })
+    expect(first.providers.find((p) => p.id === 'acp')).toMatchObject({ enabled: true, custom: false, name: 'ACP proxy', baseUrl: 'http://127.0.0.1:8787/v1' })
+    expect(await svc.testProvider({ baseUrl: 'http://127.0.0.1:8787/v1' })).toEqual({ ok: true, count: 2 })
     expect((await svc.testProvider({ baseUrl: 'http://127.0.0.1:1/v1' })).ok).toBe(false)
     expect((await svc.testProvider({ baseUrl: 'nope' })).error).toMatch(/valid/)
 
-    const o = await svc.saveProvider({ ...input, baseUrl: 'http://127.0.0.1:7461/v1', apiKey: 'sekret', models: ['x'] })
+    const o = await svc.saveProvider({ ...input, baseUrl: 'http://127.0.0.1:8787/v1', apiKey: 'sekret', models: ['x'] })
     const mine = o.providers.find((p) => p.id === 'my-server')!
     expect(mine).toMatchObject({ custom: true, name: 'My Server', apiKeyEnv: 'CUSTOM_MY_SERVER_API_KEY', keyStatus: 'stored', available: true, models: ['my-server/x'] })
     expect(store.get('CUSTOM_MY_SERVER_API_KEY')).toBe('sekret')
     expect(JSON.stringify(o)).not.toContain('sekret')
     await svc.showModels(['my-server/x'], true)
 
-    const edited = await svc.saveProvider({ ...input, id: 'my-server', name: 'Mine', baseUrl: 'http://127.0.0.1:7461/v1', models: ['x'] })
+    const edited = await svc.saveProvider({ ...input, id: 'my-server', name: 'Mine', baseUrl: 'http://127.0.0.1:8787/v1', models: ['x'] })
     expect(edited.providers.find((p) => p.id === 'my-server')).toMatchObject({ name: 'Mine', keyStatus: 'stored' })
     await expect(svc.saveProvider({ ...input, name: 'ollama' })).rejects.toThrow(/reserved/)
     await expect(svc.removeProvider('acp')).rejects.toThrow(/not a custom/)
 
-    const off = await svc.setProviderEnabled('acp', true)
-    expect(off.providers.find((p) => p.id === 'acp')?.enabled).toBe(true)
+    const off = await svc.setProviderEnabled('acp', false)
+    expect(off.providers.find((p) => p.id === 'acp')?.enabled).toBe(false)
 
     const gone = await svc.removeProvider('my-server')
     expect(gone.providers.find((p) => p.id === 'my-server')).toBeUndefined()
@@ -239,10 +272,10 @@ describe('acp discovery and the LlmService form commands', () => {
   it('removing a provider resets the chat model when it was on that provider, and keeps it otherwise', async () => {
     const { ops } = keys()
     const svc = new LlmService({ seedDir, configDir: path.join(dir, 'config'), dataDir: dir, keys: ops, discover: false, fetchImpl })
-    await svc.saveProvider({ ...input, baseUrl: 'http://127.0.0.1:7461/v1', models: ['x'] })
+    await svc.saveProvider({ ...input, baseUrl: 'http://127.0.0.1:8787/v1', models: ['x'] })
     await svc.setSelectedModel('my-server/x')
     expect((await svc.removeProvider('my-server')).selectedModel).toBeNull()
-    await svc.saveProvider({ ...input, baseUrl: 'http://127.0.0.1:7461/v1', models: ['x'] })
+    await svc.saveProvider({ ...input, baseUrl: 'http://127.0.0.1:8787/v1', models: ['x'] })
     await svc.setSelectedModel('lmstudio/other')
     expect((await svc.removeProvider('my-server')).selectedModel).toBe('lmstudio/other')
   })

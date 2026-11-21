@@ -1,0 +1,5 @@
+{"ts":"2026-11-21T19:03:48Z","actor":"implement","type":"implement.started","request":"creative-hub/REQ-0030","ticket":"MDI-18-acp-for-all","detail":"MDI-18 implement.started"}
+{"ts":"2026-11-21T19:03:48Z","actor":"implement","type":"verify.passed","request":"creative-hub/REQ-0030","ticket":"MDI-18-acp-for-all","detail":"MDI-18 verify.passed"}
+{"ts":"2026-11-21T19:03:48Z","actor":"implement","type":"changelog.written","request":"creative-hub/REQ-0030","ticket":"MDI-18-acp-for-all","detail":"MDI-18 changelog.written"}
+{"ts":"2026-11-21T--:--:--Z","actor":"director-scribe","type":"checker.verdict","request":"creative-hub/REQ-0030","ticket":"MDI-18-acp-for-all","detail":"PASS: genesis timing test passes alone (33/33 twice); failure is unrelated","data":{"verdict":"PASS","note":"genesis timing flake, diff does not touch src/core/synth"}}
+{"ts":"2026-11-21T--:--:--Z","actor":"director-scribe","type":"ticket.done","request":"creative-hub/REQ-0030","ticket":"MDI-18-acp-for-all","detail":"plan done after PASS; live checks UNTESTED","data":{"status":"done"}}

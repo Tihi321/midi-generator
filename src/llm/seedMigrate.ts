@@ -231,3 +231,48 @@ async function migrateStrata(configDir: string, seedDir: string | undefined): Pr
   }
   return result
 }
+
+/** The id `seed-state.json` records (`migrations`) once the ACP port migration has run. */
+export const ACP_PORT_MIGRATION = 'acp-port-8787-v1'
+const ACP_OLD_URL = 'http://127.0.0.1:7461/v1'
+const ACP_NEW_URL = 'http://127.0.0.1:8787/v1'
+
+/**
+ * Moves the `acp` provider of an existing config folder from the old proxy port to 8787, once (`acp-port-8787-v1` in seed-state.json):
+ * only the exact value `http://127.0.0.1:7461/v1` of its `base_url` changes, any other value is kept. A providers.md that can't be read
+ * or would be invalid after the change is left alone with a warning and the migration is not recorded (MDI-18).
+ */
+export function migrateAcpPort(configDir: string): Promise<{ changed: string[]; warnings: string[] }> {
+  return withFileLock(path.join(configDir, 'providers.md'), () => migrateAcp(configDir))
+}
+
+async function migrateAcp(configDir: string): Promise<{ changed: string[]; warnings: string[] }> {
+  const result = { changed: [] as string[], warnings: [] as string[] }
+  const stateFile = path.join(configDir, SEED_STATE_FILE)
+  const state = await readState(stateFile)
+  if ((state.migrations ?? []).includes(ACP_PORT_MIGRATION)) return result
+  const file = path.join(configDir, 'providers.md')
+  if (existsSync(file)) {
+    const mine = parseProviders(await fs.readFile(file, 'utf8'))
+    if (!mine) {
+      result.warnings.push("providers.md can't be read: the acp port was not moved")
+      return result
+    }
+    const acp = mine.providers.items.find((item) => idOf(item) === 'acp')
+    const url = isMap(acp) ? acp.get('base_url', true) : undefined
+    if (isScalar(url) && url.value === ACP_OLD_URL) {
+      url.value = ACP_NEW_URL
+      const front = mine.doc.toString({ lineWidth: 0 }).replace(/\n/g, mine.nl)
+      if (!providersSchema.safeParse(parseDocument(front).toJS()).success) {
+        result.warnings.push('providers.md would be invalid with the new acp port: left as it is')
+        return result
+      }
+      await fs.writeFile(`${file}.tmp`, mine.text.slice(0, mine.frontStart) + front + mine.text.slice(mine.frontStart + mine.front.length), 'utf8')
+      await fs.rename(`${file}.tmp`, file)
+      result.changed.push('providers.md')
+    }
+  }
+  const latest = await readState(stateFile)
+  await fs.writeFile(stateFile, JSON.stringify({ ...latest, migrations: [...(latest.migrations ?? []), ACP_PORT_MIGRATION] }, null, 2) + '\n', 'utf8')
+  return result
+}

@@ -1,5 +1,5 @@
 // Live check of Chiptune Studio on the ACP proxy (MDI-08), through the real Electron app: Settings > Models, the add-provider form and the
-// agent chat. Needs the proxy running on 127.0.0.1:7461. Gated: `ACP_LIVE=1 yarn playwright test --config playwright.electron.config.ts acp-live`.
+// agent chat. Needs the proxy running on 127.0.0.1:8787. Gated: `ACP_LIVE=1 yarn playwright test --config playwright.electron.config.ts acp-live`.
 // The app gets an isolated data folder holding a COPY of ~/ChiptuneStudio/config, so the real config is never written.
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync } from 'node:fs'
@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { type LaunchedApp, launchApp, projectRoot } from './launch'
 
-const PROXY = 'http://127.0.0.1:7461/v1'
+const PROXY = 'http://127.0.0.1:8787/v1'
 const RUNS = [
   { ref: 'acp/codex/gpt-5.6-luna', timeout: 420_000 },
   { ref: 'acp/antigravity/gemini-3.8-flash', timeout: 420_000 }
@@ -16,7 +16,7 @@ const RUNS = [
 const TASK =
   'Compose an 8-bar chiptune melody in C major at 120 bpm: set the tempo, then write the notes into the first channel of the song with your tools. Use the tools, do not just describe it.'
 
-test.skip(process.env.ACP_LIVE !== '1', 'set ACP_LIVE=1 (needs the ACP proxy on 127.0.0.1:7461)')
+test.skip(process.env.ACP_LIVE !== '1', 'set ACP_LIVE=1 (needs the ACP proxy on 127.0.0.1:8787)')
 test.describe.configure({ mode: 'serial' })
 
 let launched: LaunchedApp

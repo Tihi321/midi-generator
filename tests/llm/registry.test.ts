@@ -46,8 +46,9 @@ describe('seed config', () => {
   it('providers.md and roles.md load; roles resolve to existing models; capability flags are read', async () => {
     const { registry, router } = await createLlm({ configDir: path.join(dir, 'config'), seedDir, keys: () => undefined, discover: false })
     for (const id of ['lmstudio', 'strata', 'deepseek', 'openrouter', 'ollama', 'openai', 'anthropic', 'gemini']) expect(registry.providers.has(id), id).toBe(true)
-    expect(registry.providers.get('lmstudio')).toMatchObject({ available: true, local: true, loadModels: true, concurrencyAuto: true })
-    expect(registry.providers.get('strata')).toMatchObject({ available: true, local: true, jsonSchema: false })
+    expect(registry.providers.get('lmstudio')).toMatchObject({ available: false, local: true, loadModels: true, concurrencyAuto: true })
+    expect(registry.providers.get('strata')).toMatchObject({ available: false, local: true, jsonSchema: false }) // MDI-18: lmstudio and strata are off
+    expect(registry.providers.get('acp')).toMatchObject({ available: true, local: true })
     expect(registry.providers.get('deepseek')).toMatchObject({ available: false, unavailableReason: expect.stringMatching(/no key/) })
     expect(registry.providers.get('ollama')?.available).toBe(false)
     expect(registry.providers.get('deepseek')).toMatchObject({ jsonSchema: false })
@@ -67,13 +68,15 @@ describe('seed config', () => {
 
     for (const role of Object.keys(registry.roles.roles)) for (const ref of registry.roleModelRefs(role)) expect(registry.getModel(ref), ref).toBeTruthy()
     expect(registry.roles.roles.composer).toBeTruthy()
-    expect(registry.getModel('lmstudio/ista-daslab-qwen3.8-27b-gsq-rco-unsloth-mtp')).toMatchObject({ tools: true, vision: true })
-    // the local Qwen 3.8 27B is the only default
-    expect(router.candidates('composer').map((m) => m.ref)).toEqual(['lmstudio/ista-daslab-qwen3.8-27b-gsq-rco-unsloth-mtp'])
-    expect(router.candidates('theory').map((m) => m.ref)).toEqual(['lmstudio/ista-daslab-qwen3.8-27b-gsq-rco-unsloth-mtp'])
+    expect(registry.getModel('local')).toMatchObject({ ref: 'acp/strata/qwen3.8-flash-next-unsloth-ud-iq4_xs', tools: false, vision: false })
+    // the six acp local rows are JSON-action mode; LOCAL (Strata through the proxy) is the only default
+    const acpRows = registry.listModels().filter((m) => m.provider.id === 'acp')
+    expect(acpRows).toHaveLength(6)
+    expect(acpRows.every((m) => m.tools === false)).toBe(true)
+    expect(router.candidates('composer').map((m) => m.ref)).toEqual(['acp/strata/qwen3.8-flash-next-unsloth-ud-iq4_xs'])
+    expect(router.candidates('theory').map((m) => m.ref)).toEqual(['acp/strata/qwen3.8-flash-next-unsloth-ud-iq4_xs'])
     // no key: a picked cloud model is dropped
-    expect(router.candidates('composer', { agentModel: 'cloud' }).map((m) => m.ref)).toEqual(['lmstudio/ista-daslab-qwen3.8-27b-gsq-rco-unsloth-mtp'])
-    expect(router.candidates('composer', { agentModel: 'strata/qwen3.8-flash-next-low' })[0]!.ref).toBe('strata/default-low') // the old ref resolves to the loaded row
+    expect(router.candidates('composer', { agentModel: 'cloud' }).map((m) => m.ref)).toEqual(['acp/strata/qwen3.8-flash-next-unsloth-ud-iq4_xs'])
     expect(registry.loadConfigFor('lmstudio', 'nail-qwen3.6-35b-a3b-mtp')).toEqual({ parallel: 1, context: 131072, ttlMinutes: 60 })
     expect(registry.lmContext).toEqual({ effective: 131072, fromConfig: 131072 })
     // the context size from Settings replaces providers.md's for every LM Studio model, also over a model's own load_context
@@ -86,8 +89,8 @@ describe('seed config', () => {
 
   it('with a key the paid providers are available', async () => {
     const { router } = await createLlm({ configDir: path.join(dir, 'config'), seedDir, keys: () => 'k', discover: false })
-    expect(router.candidates('composer', { agentModel: 'cloud' }).map((m) => m.ref)).toEqual(['deepseek/deepseek-flash', 'lmstudio/ista-daslab-qwen3.8-27b-gsq-rco-unsloth-mtp'])
-    expect(router.candidates('composer', { agentModel: 'claude', requireTools: true })).toHaveLength(2)
+    expect(router.candidates('composer', { agentModel: 'cloud' }).map((m) => m.ref)).toEqual(['deepseek/deepseek-flash', 'acp/strata/qwen3.8-flash-next-unsloth-ud-iq4_xs'])
+    expect(router.candidates('composer', { agentModel: 'claude', requireTools: true })).toHaveLength(1) // the JSON-action local model is not a fallback for a tool-calling pick
   })
 })
 
