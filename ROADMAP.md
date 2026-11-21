@@ -60,3 +60,7 @@ Not built. The user cut it from HUB-33: the SNES chip keeps its BRR grit as its 
 ## MDI-17: trim .yarnrc.yml (2026-11-10, branch MDI-17_yarnrc-trim)
 
 Done. `.yarnrc.yml` keeps `enableScripts: true` (Electron's postinstall) and `nodeLinker: node-modules`; the git-repo wildcard and the `npmMinimalAgeGate: 0` override that yarn 4.18 wrote during the HUB-33 install are dropped. No code change.
+
+## MDI-18: ACP for all (2026-11-21, branch MDI-18_acp-for-all)
+
+creative-hub HUB-38, REQ-0030. The composer and theory run on LOCAL = `acp/strata/qwen3.8-flash-next-unsloth-ud-iq4_xs` through the ACP proxy in JSON-action mode; seed acp on at 8787 with the gufo/strata/llama rows (Inkling listed, not default), migration `acp-port-8787-v1`, `strata` and `lmstudio` off (code kept). Live check UNTESTED.

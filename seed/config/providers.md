@@ -9,6 +9,7 @@ lmstudio_ttl_minutes: 60
 providers:
   - id: lmstudio
     kind: openai-compat
+    enabled: false                # off since MDI-18 (every model goes through the acp proxy); the code stays, switch on to use LM Studio directly
     local: true
     base_url: http://localhost:1234/v1
     concurrency: auto             # the sum of `parallel` over the loaded chat models, 1 when none is loaded
@@ -37,6 +38,7 @@ providers:
         extra_body: { reasoning_effort: none }
   - id: strata
     kind: openai-compat
+    enabled: false                # off since MDI-18 (Strata is reached as acp/strata/...); the code stays, switch on to use Strata directly
     local: true
     base_url: http://127.0.0.1:8080/v1
     api_key_env: STRATA_API_KEY   # optional: only sent if set
@@ -114,13 +116,48 @@ providers:
   - id: acp
     name: ACP proxy
     kind: openai-compat
-    enabled: false                # switch on in Settings > Models (or here) when the proxy runs
+    enabled: true                 # the route to every model, local ones included (MDI-18); the proxy must be running
     local: true
-    base_url: http://127.0.0.1:7461/v1
-    concurrency: 2
-    discover: true                # ids look like codex/gpt-5.6-luna, antigravity/gemini-3.8-flash
+    base_url: http://127.0.0.1:8787/v1
+    concurrency: 4
     json_schema: false            # the proxy does not constrain a structured answer
-    models: []
+    discover: true                # ids look like codex/gpt-5.6-luna, antigravity/gemini-3.8-flash, strata/<model>
+    discover_skip: [ qwen-image, nomic-embed ]
+    models:
+      # Local models through the proxy (HUB-38). One local model is loaded at a time across gufo, strata and llama;
+      # a request for another one waits until the proxy has switched (minutes). The roles use the strata row (alias `local`).
+      # The proxy refuses tools for local models: JSON-action mode.
+      - id: strata/qwen3.8-flash-next-unsloth-ud-iq4_xs
+        family: qwen
+        context: 131072
+        tools: false
+        extra_body: { reasoning_effort: none }
+      - id: gufo/Qwen3.8-27B
+        family: qwen
+        context: 32768
+        tools: false
+        extra_body: { reasoning_effort: none }
+      - id: gufo/deepseek4
+        family: deepseek
+        context: 16384
+        tools: false
+        extra_body: { reasoning_effort: none }
+      - id: gufo/flash-next-q4
+        family: qwen
+        context: 32768
+        tools: false
+        vision: true
+        extra_body: { reasoning_effort: none }
+      - id: llama/inkling-2-mini
+        family: inkling
+        context: 32768
+        tools: false
+        vision: true
+      - id: llama/inkling-2-mini-dspark
+        family: inkling
+        context: 32768
+        tools: false
+        vision: true
   - id: ollama
     kind: openai-compat
     enabled: false                # switch on if you run Ollama
@@ -220,7 +257,7 @@ A model is written `provider/model`, for example `lmstudio/google/gemma-4-e4b`. 
 
 ## ACP proxy
 
-`acp` is the ACP proxy (an OpenAI-compatible API over your Codex / Antigravity / Claude subscriptions, `http://127.0.0.1:7461/v1`). It is off by default: turn it on in Settings > Models, then Detect models and tick the ones you want (ids look like `codex/gpt-5.6-luna`). Start the proxy with `PROXY_IGNORE_SAMPLING=1`, because the agent sends `temperature`, `max_tokens` and `stream_options`. It is text only (no vision). Models of a local provider default to `tools: false` (JSON-action mode); list a model here with `tools: true` to use native tool calling. `PROXY_TIMEOUT_MS` (default 5 minutes) must cover long requests. Using a subscription through a proxy may be against its terms (Antigravity especially): your call.
+`acp` is the ACP proxy (an OpenAI-compatible API on `http://127.0.0.1:8787/v1`) and it is on: every model is reached through it, the cloud ones over your Codex / Antigravity / Claude subscriptions and the local ones (`gufo/*`, `strata/*`, `llama/*`). Detect models in Settings > Models lists the rest (ids look like `codex/gpt-5.6-luna`). The local rows are `tools: false` because the proxy answers a request with `tools` to a local model with 400 `model_not_capable`: the agent uses JSON-action mode for them. The proxy needs no `PROXY_IGNORE_SAMPLING` (AAP-28). One local model sits on the GPU at a time across gufo, strata and llama: a request for another one waits until the proxy has switched, which takes minutes. `lmstudio` and `strata` are off (their code stays: set `enabled: true` to use them directly). The `vision: true` rows are listed for completeness; none is a default. Models of a local provider default to `tools: false` (JSON-action mode); list a model here with `tools: true` to use native tool calling. `PROXY_TIMEOUT_MS` (default 5 minutes) must cover long requests. Using a subscription through a proxy may be against its terms (Antigravity especially): your call.
 
 ## Your own providers
 

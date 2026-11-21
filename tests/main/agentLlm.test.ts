@@ -38,12 +38,13 @@ describe('LlmService', () => {
     expect(byId.anthropic).toMatchObject({ keyStatus: 'stored', available: true, apiKeyEnv: 'ANTHROPIC_API_KEY' })
     expect(byId.openai).toMatchObject({ keyStatus: 'env' })
     expect(byId.deepseek).toMatchObject({ keyStatus: 'none', available: false })
-    expect(byId.lmstudio).toMatchObject({ keyStatus: 'none', available: true, local: true })
+    expect(byId.acp).toMatchObject({ keyStatus: 'none', available: true, local: true, enabled: true })
+    expect(byId.lmstudio).toMatchObject({ available: false, enabled: false }) // MDI-18: off, code kept
     expect(byId.anthropic!.models).toContain('anthropic/claude-sonnet-5-5')
     const sonnet = o.models.find((m) => m.ref === 'anthropic/claude-sonnet-5-5')!
     expect(sonnet).toMatchObject({ tools: true, vision: true, local: false, available: true })
     expect(o.models.find((m) => m.ref === 'lmstudio/google/gemma-4-e4b')).toMatchObject({ tools: false, vision: true, local: true })
-    expect(o.defaultModel).toBe('lmstudio/ista-daslab-qwen3.8-27b-gsq-rco-unsloth-mtp')
+    expect(o.defaultModel).toBe('acp/strata/qwen3.8-flash-next-unsloth-ud-iq4_xs')
     expect(JSON.stringify(o)).not.toMatch(/secret/)
   })
 
@@ -101,9 +102,9 @@ describe('LlmService', () => {
     expect(JSON.parse(await readFile(path.join(dir, 'config', 'app.json'), 'utf8'))).toEqual({ selectedModel: 'anthropic/claude-sonnet-5-5' })
     expect(await svc.resolveModel()).toMatchObject({ vision: true, ref: 'anthropic/claude-sonnet-5-5', source: { role: 'composer', modelRef: 'anthropic/claude-sonnet-5-5' } })
     // an explicit ref wins over the saved one
-    expect(await svc.resolveModel('lmstudio/google/gemma-4-e4b')).toMatchObject({ vision: true, ref: 'lmstudio/google/gemma-4-e4b' })
+    expect(await svc.resolveModel('acp/gufo/flash-next-q4')).toMatchObject({ vision: true, ref: 'acp/gufo/flash-next-q4' })
     await svc.setSelectedModel(null)
-    expect(await svc.resolveModel()).toMatchObject({ vision: true, ref: 'lmstudio/ista-daslab-qwen3.8-27b-gsq-rco-unsloth-mtp' })
+    expect(await svc.resolveModel()).toMatchObject({ vision: false, ref: 'acp/strata/qwen3.8-flash-next-unsloth-ud-iq4_xs' })
   })
 
   it('the context size from Settings is saved, applied to LM Studio loads and survives a restart', async () => {

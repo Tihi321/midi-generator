@@ -1,7 +1,7 @@
 import { defaultConfigDir, ensureConfigDir, ModelRegistry } from './registry'
 import type { RegistryOptions } from './registry'
 import { ModelRouter } from './router'
-import { migrateSeedProviders, migrateStrataLoaded } from './seedMigrate'
+import { migrateAcpPort, migrateSeedProviders, migrateStrataLoaded } from './seedMigrate'
 import type { RouterOptions } from './router'
 
 export interface CreateLlmOptions extends RegistryOptions {
@@ -25,6 +25,8 @@ export async function createLlm(opts: CreateLlmOptions = {}): Promise<{ registry
   await migrateSeedProviders(configDir, opts.seedDir).catch(() => []) // a failed migration never blocks the start
   // Strata's fixed model rows become the `loaded` ones, once (strata-loaded-v1)
   await migrateStrataLoaded(configDir, opts.seedDir).catch(() => undefined)
+  // the acp proxy moved from port 7461 to 8787, once (acp-port-8787-v1)
+  await migrateAcpPort(configDir).catch(() => undefined)
   const registry = new ModelRegistry(configDir, opts)
   await registry.load()
   if (opts.discover !== false) {
