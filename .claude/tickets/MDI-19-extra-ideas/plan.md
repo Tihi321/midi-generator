@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 request: creative-hub/REQ-0030
 repos: [midi-generator]
 branch: MDI-19_extra-ideas

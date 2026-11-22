@@ -3,3 +3,5 @@
 {"ts":"2026-11-22T12:01:24Z","actor":"implement","type":"implement.started","request":"creative-hub/REQ-0030","ticket":"MDI-19-extra-ideas","detail":"branch MDI-19_extra-ideas"}
 {"ts":"2026-11-22T12:04:21Z","actor":"implement","type":"verify.passed","request":"creative-hub/REQ-0030","ticket":"MDI-19-extra-ideas","detail":"A1-A4 pass"}
 {"ts":"2026-11-22T12:04:21Z","actor":"implement","type":"changelog.written","request":"creative-hub/REQ-0030","ticket":"MDI-19-extra-ideas","detail":"changelog.md"}
+{"ts":"2026-11-22T12:22:00Z","actor":"director-scribe","type":"checker.verdict","request":"creative-hub/REQ-0030","ticket":"MDI-19-extra-ideas","detail":"director-checker PASS","data":{"verdict":"PASS"}}
+{"ts":"2026-11-22T12:22:00Z","actor":"director-scribe","type":"ticket.done","request":"creative-hub/REQ-0030","ticket":"MDI-19-extra-ideas","detail":"done after PASS verdict"}
