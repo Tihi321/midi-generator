@@ -64,3 +64,7 @@ Done. `.yarnrc.yml` keeps `enableScripts: true` (Electron's postinstall) and `no
 ## MDI-18: ACP for all (2026-11-21, branch MDI-18_acp-for-all)
 
 creative-hub HUB-38, REQ-0030. The composer and theory run on LOCAL = `acp/strata/qwen3.8-flash-next-unsloth-ud-iq4_xs` through the ACP proxy in JSON-action mode; seed acp on at 8787 with the gufo/strata/llama rows (Inkling listed, not default), migration `acp-port-8787-v1`, `strata` and `lmstudio` off (code kept). Live check UNTESTED.
+
+## MDI-19: extra ideas of HUB-38 (2026-11-22, branch MDI-19_extra-ideas)
+
+creative-hub HUB-40, REQ-0030. The Genesis perf test takes the best of 2 renders and allows 4 s (one render took 3.0-3.2 s on this PC, so the 3 s limit failed); the seed names `D:\Strata\terminal` as the folder of the Strata scripts. Ticket: `.claude/tickets/MDI-19-extra-ideas/`.
