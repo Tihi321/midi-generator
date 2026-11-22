@@ -1,0 +1,5 @@
+{"ts":"2026-11-22T21:10:00Z","actor":"planner","type":"plan.created","request":"REQ-0031","ticket":"MDI-21-perf-margin","detail":"planner wrote the plan (draft)"}
+{"ts":"2026-11-22T21:20:00Z","actor":"director","type":"plan.approved","request":"REQ-0031","ticket":"MDI-21-perf-margin","detail":"user: 'Yes, approve all' to 'Do you approve the seven plans with these defaults'; written by the director because the scribe could not see the user's message"}
+{"ts":"2026-11-22T21:25:00Z","actor":"implement","type":"implement.started","request":"creative-hub/REQ-0031","ticket":"MDI-21-perf-margin","detail":"branch MDI-21_perf-margin cut from master"}
+{"ts":"2026-11-22T21:28:00Z","actor":"implement","type":"verify.passed","request":"creative-hub/REQ-0031","ticket":"MDI-21-perf-margin","detail":"yarn test 1198 passed, typecheck and lint clean"}
+{"ts":"2026-11-22T21:29:00Z","actor":"implement","type":"changelog.written","request":"creative-hub/REQ-0031","ticket":"MDI-21-perf-margin","detail":"changelog.md written"}
