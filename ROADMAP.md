@@ -68,3 +68,7 @@ creative-hub HUB-38, REQ-0030. The composer and theory run on LOCAL = `acp/strat
 ## MDI-19: extra ideas of HUB-38 (2026-11-22, branch MDI-19_extra-ideas)
 
 creative-hub HUB-40, REQ-0030. The Genesis perf test takes the best of 2 renders and allows 4 s (one render took 3.0-3.2 s on this PC, so the 3 s limit failed); the seed names `D:\Strata\terminal` as the folder of the Strata scripts. Ticket: `.claude/tickets/MDI-19-extra-ideas/`.
+
+## MDI-20: seed prose (2026-11-22, branch MDI-20_lm-studio-prose)
+
+creative-hub HUB-41, REQ-0030. The seed's Strata paragraph no longer says to keep the nomic embedding model in LM Studio (not installed, and Chiptune Studio has no embeddings). Prose only. Ticket: `.claude/tickets/MDI-20-lm-studio-prose/`.

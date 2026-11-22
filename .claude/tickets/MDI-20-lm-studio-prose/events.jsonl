@@ -1,0 +1,5 @@
+{"ts":"2026-11-22T13:30:00Z","actor":"planner","type":"plan.created","request":"creative-hub/REQ-0030","ticket":"MDI-20-lm-studio-prose","detail":"planner wrote the plan (draft)"}
+{"ts":"2026-11-22T13:30:00Z","actor":"director-scribe","type":"plan.approved","request":"creative-hub/REQ-0030","ticket":"MDI-20-lm-studio-prose","detail":"user approved the plan as written","data":{"note":"user: 'Approve with both'"}}
+{"ts":"2026-11-22T13:30:32Z","actor":"implement","type":"implement.started","request":"creative-hub/REQ-0030","ticket":"MDI-20-lm-studio-prose","detail":"branch MDI-20_lm-studio-prose from master"}
+{"ts":"2026-11-22T13:32:27Z","actor":"implement","type":"verify.passed","request":"creative-hub/REQ-0030","ticket":"MDI-20-lm-studio-prose","detail":"test, typecheck, lint, build exit 0"}
+{"ts":"2026-11-22T13:32:27Z","actor":"implement","type":"changelog.written","request":"creative-hub/REQ-0030","ticket":"MDI-20-lm-studio-prose","detail":"changelog.md written"}
