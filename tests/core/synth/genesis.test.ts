@@ -600,7 +600,7 @@ describe('golden output hash', () => {
 
 describe('performance', () => {
   it.skipIf(process.env.SKIP_PERF === '1')('renders 3 minutes of a 10-channel Genesis song in under 4 s (best of 2)', () => {
-    // best of 2 and a 4 s limit: one render took 3.0-3.2 s here, so 3 s failed under a loaded machine (creative-hub HUB-40)
+    // best of 2 and a 4 s limit: unloaded, one render takes about 1.4 s (3.0-3.2 s on a loaded machine, creative-hub HUB-40), so this catches a slowdown of about 3x, not a small one
     // 130 bpm, 16 rows per bar: one 64-row pattern = 4 bars ~ 7.4 s; 25 orders ~ 184 s
     const song = genesisSongFull(64, 25)
     song.loop = null // a looping song is rendered as intro + 2 bodies; time exactly 3 minutes of audio

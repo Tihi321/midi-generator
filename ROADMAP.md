@@ -72,3 +72,7 @@ creative-hub HUB-40, REQ-0030. The Genesis perf test takes the best of 2 renders
 ## MDI-20: seed prose (2026-11-22, branch MDI-20_lm-studio-prose)
 
 creative-hub HUB-41, REQ-0030. The seed's Strata paragraph no longer says to keep the nomic embedding model in LM Studio (not installed, and Chiptune Studio has no embeddings). Prose only. Ticket: `.claude/tickets/MDI-20-lm-studio-prose/`.
+
+## MDI-21: Genesis performance margin (2026-11-22, branch MDI-21_perf-margin)
+
+creative-hub HUB-44, REQ-0031. The Genesis performance test's comment says what its 4 s limit catches (about a 3x slowdown; one render takes about 1.4 s unloaded). Comment only. Ticket: `.claude/tickets/MDI-21-perf-margin/`.
