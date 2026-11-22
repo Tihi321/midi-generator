@@ -3,3 +3,5 @@
 {"ts":"2026-11-22T21:25:00Z","actor":"implement","type":"implement.started","request":"creative-hub/REQ-0031","ticket":"MDI-21-perf-margin","detail":"branch MDI-21_perf-margin cut from master"}
 {"ts":"2026-11-22T21:28:00Z","actor":"implement","type":"verify.passed","request":"creative-hub/REQ-0031","ticket":"MDI-21-perf-margin","detail":"yarn test 1198 passed, typecheck and lint clean"}
 {"ts":"2026-11-22T21:29:00Z","actor":"implement","type":"changelog.written","request":"creative-hub/REQ-0031","ticket":"MDI-21-perf-margin","detail":"changelog.md written"}
+{"ts":"2026-11-22T21:58:00Z","actor":"director-scribe","type":"checker.verdict","request":"REQ-0031","ticket":"MDI-21-perf-margin","detail":"round 1 PASS","data":{"round":1,"verdict":"PASS"}}
+{"ts":"2026-11-22T21:58:00Z","actor":"director-scribe","type":"ticket.done","request":"REQ-0031","ticket":"MDI-21-perf-margin","detail":"done after round 1 PASS; branch not merged"}
